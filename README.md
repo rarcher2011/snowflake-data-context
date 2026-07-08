@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-# snowflake-data-context
-snowflake-data-context
-
-Methods for helping add Snowflake context to AI agents and SDKs
-=======
 # OpenAI Snowflake Agent Context
 
 Python extension helpers for enriching OpenAI SDK coding-agent workflows with Snowflake table descriptions, schema metadata, relationship hints, and governance context.
