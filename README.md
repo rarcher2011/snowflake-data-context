@@ -17,5 +17,3 @@ See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the imp
 ## Status
 
 Design scaffold only. Implementation is intentionally not complete yet.
-
->>>>>>> 6ed60f6 (Initial Snowflake data context extension scaffold)
