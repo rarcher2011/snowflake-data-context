@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openai-snowflake-agent-context"
+version = "0.1.0"
+description = "Extension helpers for using Snowflake metadata with OpenAI Python SDK coding agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Rich Archer" }
+]
+dependencies = [
+  "openai>=1.0.0",
+  "snowflake-connector-python>=3.0.0",
+  "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.5.0",
+  "mypy>=1.10.0",
+]
+semantic = [
+  "numpy>=1.26.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openai_snowflake_agent_context"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
