@@ -1,0 +1,9 @@
+[repo]
+path = "."
+
+[paths]
+memory_dir = ".agent_harness/memory"
+status_file = ".agent_harness/status.json"
+work_file = ".agent_harness/work.md"
+session_context_file = ".agent_harness/session_context.md"
+
