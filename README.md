@@ -14,6 +14,12 @@ The package is intended to make Snowflake metadata easy to retrieve, compact, ca
 
 See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
 
+## Long-Running Agent Harness
+
+This repository includes a file-based startup harness for long-running coding agents and analysis sessions. It recovers the latest memory file, status JSON, and configured work queue, then writes a compact session context file for the next agent context window.
+
+See [docs/LONG_RUNNING_AGENT_HARNESS.md](docs/LONG_RUNNING_AGENT_HARNESS.md) for usage and file formats.
+
 ## Status
 
 Design scaffold only. Implementation is intentionally not complete yet.
