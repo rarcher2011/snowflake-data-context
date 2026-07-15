@@ -50,7 +50,7 @@ def test_find_latest_memory_parses_status_and_work_id(tmp_path: Path) -> None:
 
     memory = find_latest_memory(memory_dir)
 
-    assert memory.path == new_memory
+    assert memory.path == str(new_memory)
     assert memory.status == "in_progress"
     assert memory.work_id == "WORK-2"
     assert memory.summary == "Formatter implementation started"
@@ -155,4 +155,3 @@ def _write_work_file(tmp_path: Path, content: str) -> Path:
     work_file = tmp_path / "work.md"
     work_file.write_text(content, encoding="utf-8")
     return work_file
-
