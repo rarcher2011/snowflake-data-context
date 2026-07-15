@@ -31,6 +31,11 @@ dev = [
 semantic = [
   "numpy>=1.26.0",
 ]
+cloud = [
+  "boto3>=1.34.0",
+  "google-cloud-storage>=2.16.0",
+  "google-api-python-client>=2.130.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openai_snowflake_agent_context"]
