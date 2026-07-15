@@ -7,3 +7,16 @@ status_file = ".agent_harness/status.json"
 work_file = ".agent_harness/work.md"
 session_context_file = ".agent_harness/session_context.md"
 
+# Optional remote locations. When configured, these override the matching local
+# paths above for startup reads. The harness still writes session_context_file
+# locally so the active agent has a compact context window handoff.
+#
+# [locations]
+# memory = "s3://my-agent-state/memory/"
+# status = "gs://my-agent-state/status.json"
+# work = "gdoc://google-doc-id-for-work-queue"
+#
+# [locations.config]
+# backend = "google_doc"
+# uri = "https://docs.google.com/document/d/google-doc-id/edit"
+# description = "Shared bootstrap configuration for long-running agents"
