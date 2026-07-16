@@ -9,6 +9,38 @@ class FakeConnection:
         return object()
 
 
+class FakeMetadataProvider(SnowflakeMetadataProvider):
+    def __init__(self) -> None:
+        super().__init__(
+            FakeConnection(),
+            SnowflakeContextConfig(
+                account="test-account",
+                user="analyst",
+                warehouse="agent_wh",
+                database="ANALYTICS",
+                schema="PUBLIC",
+            ),
+        )
+        self.requested_table_names: list[str] | None = []
+
+    def describe_tables(self, table_names: list[str] | None = None) -> list[TableContext]:
+        self.requested_table_names = table_names
+        return [
+            TableContext(
+                database="ANALYTICS",
+                schema="PUBLIC",
+                name="ORDERS",
+                kind="TABLE",
+                description="Order fact table with one row per customer order.",
+                columns=(
+                    "ORDER_ID NUMBER -- Unique identifier for an order from the commerce system.",
+                    "CUSTOMER_ID NUMBER",
+                ),
+                context_markdown="",
+            )
+        ]
+
+
 def test_describe_tables_declares_unimplemented_provider_contract() -> None:
     provider = SnowflakeMetadataProvider(
         FakeConnection(),
@@ -37,6 +69,25 @@ def test_table_context_holds_agent_ready_markdown() -> None:
     assert table.database == "ANALYTICS"
     assert table.columns == ("ORDER_ID NUMBER", "CUSTOMER_ID NUMBER", "ORDER_DATE DATE")
     assert "one row per order" in table.context_markdown
+
+
+def test_analyze_schema_descriptions_uses_all_tables_when_table_names_omitted() -> None:
+    provider = FakeMetadataProvider()
+
+    analysis = provider.analyze_schema_descriptions()
+
+    assert provider.requested_table_names is None
+    assert analysis.total_tables == 1
+    assert analysis.total_columns == 2
+    assert [column.column_name for column in analysis.columns_needing_improvement] == ["CUSTOMER_ID"]
+
+
+def test_analyze_schema_descriptions_passes_explicit_table_names() -> None:
+    provider = FakeMetadataProvider()
+
+    provider.analyze_schema_descriptions(["ANALYTICS.PUBLIC.ORDERS"])
+
+    assert provider.requested_table_names == ["ANALYTICS.PUBLIC.ORDERS"]
 
 
 @pytest.mark.xfail(reason="Formatter module will be implemented during the next TDD phase.")
@@ -84,4 +135,3 @@ def test_future_openai_wrapper_preserves_callable_result() -> None:
     )
 
     assert result["kwargs"]["model"] == "gpt-4.1"
-

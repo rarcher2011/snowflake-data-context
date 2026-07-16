@@ -11,6 +11,7 @@ The package is intended to make Snowflake metadata easy to retrieve, compact, ca
 - Provide extension-style helpers around the official `openai` Python SDK without forking it.
 - Support explicit table selection, semantic search over metadata, and token-budgeted context packing.
 - Offer safe defaults for credential handling, query limits, caching, and governance-aware redaction.
+- Analyze table and column description quality so agents can identify metadata gaps that weaken SQL generation and analysis.
 
 See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
 
@@ -19,6 +20,12 @@ See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the imp
 This repository includes a file-based startup harness for long-running coding agents and analysis sessions. It recovers the latest memory file, status JSON, and configured work queue, then writes a compact session context file for the next agent context window.
 
 See [docs/LONG_RUNNING_AGENT_HARNESS.md](docs/LONG_RUNNING_AGENT_HARNESS.md) for usage and file formats.
+
+## Metadata Description Analysis
+
+The SDK extension exposes `analyze_table_metadata_descriptions` for scoring table and column descriptions in existing `TableContext` objects. `SnowflakeMetadataProvider.analyze_schema_descriptions()` delegates through `describe_tables(None)` so the intended workflow is to analyze every table returned for the configured schema.
+
+The analysis reports description coverage, weak or missing column descriptions, quality scores, issues, and improvement recommendations.
 
 ## Status
 
