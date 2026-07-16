@@ -10,6 +10,14 @@ from pathlib import Path
 from sys import version_info
 from typing import Any, cast
 
+from .agent_harness_locations import (
+    LocationReaders,
+    LocationSpec,
+    list_text_location,
+    parse_location_spec,
+    read_text_location,
+)
+
 if version_info >= (3, 11):
     import tomllib  # type: ignore[import-untyped]
 else:
@@ -37,13 +45,17 @@ class HarnessConfig:
     status_file: Path
     work_file: Path
     session_context_file: Path
+    memory_location: LocationSpec | None = None
+    status_location: LocationSpec | None = None
+    work_location: LocationSpec | None = None
+    config_location: LocationSpec | None = None
 
 
 @dataclass(frozen=True)
 class MemoryRecord:
     """Latest memory file and parsed status hints."""
 
-    path: Path | None
+    path: str | None
     status: str | None
     work_id: str | None
     summary: str | None
@@ -93,21 +105,41 @@ class HarnessReport:
         return "\n".join(lines)
 
 
-def initialize_agent_session(config_path: Path) -> HarnessReport:
+def initialize_agent_session(
+    config_path: Path | str,
+    readers: LocationReaders | None = None,
+) -> HarnessReport:
     """Load config, recover memory/status/work state, and write a context bundle."""
 
-    config = load_harness_config(config_path)
+    resolved_config_path = Path(config_path)
+    config = load_harness_config(resolved_config_path)
     warnings = validate_config(config)
-    memory = find_latest_memory(config.memory_dir)
-    status = load_status(config.status_file)
-    next_work = load_next_work(config.work_file)
+
+    try:
+        memory = find_latest_memory_from_location(config, readers)
+    except RuntimeError as exc:
+        warnings.append(str(exc))
+        memory = find_latest_memory(config.memory_dir)
+
+    try:
+        status = load_status_from_location(config, readers)
+    except RuntimeError as exc:
+        warnings.append(str(exc))
+        status = load_status(config.status_file)
+
+    try:
+        next_work = load_next_work_from_location(config, readers)
+    except RuntimeError as exc:
+        warnings.append(str(exc))
+        next_work = load_next_work(config.work_file)
+
     incomplete_work = detect_incomplete_work(memory, status, next_work)
     warnings.extend(detect_status_mismatches(memory, status, next_work))
 
     generated_at = datetime.now(timezone.utc).isoformat()
     report = HarnessReport(
         repo_path=str(config.repo_path),
-        config_path=str(config_path.resolve()),
+        config_path=str(resolved_config_path.resolve()),
         memory=memory,
         status=status,
         next_work=next_work,
@@ -128,6 +160,7 @@ def load_harness_config(config_path: Path) -> HarnessConfig:
     config_root = resolved_config_path.parent
     repo_path = _resolve_path(config_root, raw.get("repo", {}).get("path", "."))
     paths = raw.get("paths", {})
+    locations = raw.get("locations", {})
 
     return HarnessConfig(
         repo_path=repo_path,
@@ -138,6 +171,10 @@ def load_harness_config(config_path: Path) -> HarnessConfig:
             repo_path,
             paths.get("session_context_file", ".agent_harness/session_context.md"),
         ),
+        memory_location=_parse_optional_location(locations.get("memory"), repo_path),
+        status_location=_parse_optional_location(locations.get("status"), repo_path),
+        work_location=_parse_optional_location(locations.get("work"), repo_path),
+        config_location=_parse_optional_location(locations.get("config"), repo_path),
     )
 
 
@@ -153,6 +190,14 @@ def validate_config(config: HarnessConfig) -> list[str]:
         warnings.append(f"Status file not found: {config.status_file}")
     if not config.work_file.exists():
         warnings.append(f"Work file not found: {config.work_file}")
+    for label, location in (
+        ("memory", config.memory_location),
+        ("status", config.status_location),
+        ("work", config.work_location),
+        ("config", config.config_location),
+    ):
+        if location is not None and location.backend != "local":
+            warnings.append(f"{label} is configured for remote backend {location.backend}: {location.uri}")
     return warnings
 
 
@@ -171,11 +216,32 @@ def find_latest_memory(memory_dir: Path) -> MemoryRecord:
         return MemoryRecord(path=None, status=None, work_id=None, summary=None)
 
     latest = max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
-    text = latest.read_text(encoding="utf-8")
+    return parse_memory_text(str(latest), latest.read_text(encoding="utf-8"))
+
+
+def find_latest_memory_from_location(
+    config: HarnessConfig,
+    readers: LocationReaders | None = None,
+) -> MemoryRecord:
+    """Find latest memory from configured local or remote location."""
+
+    if config.memory_location is None:
+        return find_latest_memory(config.memory_dir)
+
+    objects = list_text_location(config.memory_location, readers)
+    if not objects:
+        return MemoryRecord(path=None, status=None, work_id=None, summary=None)
+    latest = max(objects, key=lambda item: (item.updated_at, item.name))
+    return parse_memory_text(latest.name, latest.text)
+
+
+def parse_memory_text(name: str, text: str) -> MemoryRecord:
+    """Parse status hints from one memory text payload."""
+
     status = _extract_labeled_value(text, "status")
     work_id = _extract_labeled_value(text, "work_id") or _extract_labeled_value(text, "work-id")
     summary = _extract_labeled_value(text, "summary")
-    return MemoryRecord(path=latest, status=status, work_id=work_id, summary=summary)
+    return MemoryRecord(path=name, status=status, work_id=work_id, summary=summary)
 
 
 def load_status(status_file: Path) -> dict[str, Any]:
@@ -186,14 +252,45 @@ def load_status(status_file: Path) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(status_file.read_text(encoding="utf-8")))
 
 
+def load_status_from_location(
+    config: HarnessConfig,
+    readers: LocationReaders | None = None,
+) -> dict[str, Any]:
+    """Load status from configured local or remote location."""
+
+    if config.status_location is None:
+        return load_status(config.status_file)
+    return cast(dict[str, Any], json.loads(read_text_location(config.status_location, readers)))
+
+
 def load_next_work(work_file: Path) -> WorkItem | None:
     """Load the first unchecked work item from Markdown or a JSON work file."""
 
     if not work_file.exists():
         return None
 
-    if work_file.suffix.lower() == ".json":
-        raw = json.loads(work_file.read_text(encoding="utf-8"))
+    return parse_next_work_text(work_file.name, work_file.read_text(encoding="utf-8"))
+
+
+def load_next_work_from_location(
+    config: HarnessConfig,
+    readers: LocationReaders | None = None,
+) -> WorkItem | None:
+    """Load next work from configured local or remote location."""
+
+    if config.work_location is None:
+        return load_next_work(config.work_file)
+    return parse_next_work_text(
+        config.work_location.uri,
+        read_text_location(config.work_location, readers),
+    )
+
+
+def parse_next_work_text(source_name: str, text: str) -> WorkItem | None:
+    """Parse first unfinished work item from Markdown or JSON text."""
+
+    if source_name.lower().endswith(".json"):
+        raw = json.loads(text)
         items = raw.get("items", raw if isinstance(raw, list) else [])
         for item in items:
             status = str(item.get("status", "pending")).lower()
@@ -205,7 +302,7 @@ def load_next_work(work_file: Path) -> WorkItem | None:
                 )
         return None
 
-    for line in work_file.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         match = re.match(r"^\s*[-*]\s+\[(?P<mark>[ xX])\]\s+(?P<body>.+?)\s*$", line)
         if not match or match.group("mark").lower() == "x":
             continue
@@ -315,6 +412,12 @@ def _resolve_path(base_path: Path, value: str) -> Path:
     if path.is_absolute():
         return path.resolve()
     return (base_path / path).resolve()
+
+
+def _parse_optional_location(raw: object | None, base_path: Path) -> LocationSpec | None:
+    if raw is None:
+        return None
+    return parse_location_spec(raw, base_path)
 
 
 def _extract_labeled_value(text: str, label: str) -> str | None:
