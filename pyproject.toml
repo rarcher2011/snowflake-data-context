@@ -49,5 +49,6 @@ python_version = "3.10"
 strict = true
 
 [tool.pytest.ini_options]
+addopts = ["--capture=sys"]
 pythonpath = ["src"]
 testpaths = ["tests"]
