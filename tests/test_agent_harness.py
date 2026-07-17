@@ -2,13 +2,25 @@ import json
 from pathlib import Path
 
 from openai_snowflake_agent_context.agent_harness import (
+    HarnessProgressUpdate,
     detect_status_mismatches,
+    format_progress_update,
     find_latest_memory,
     initialize_agent_session,
     load_harness_config,
     load_next_work,
     load_status,
+    publish_progress_update,
 )
+from openai_snowflake_agent_context.agent_harness_locations import LocationReaders
+
+
+class FakeGoogleDocsProgress:
+    def __init__(self) -> None:
+        self.appended: list[tuple[str, str]] = []
+
+    def append_document_text(self, document_id: str, text: str) -> None:
+        self.appended.append((document_id, text))
 
 
 def test_load_harness_config_resolves_paths_from_repo_root(tmp_path: Path) -> None:
@@ -149,6 +161,100 @@ session_context_file = ".agent_harness/session_context.md"
     assert "Latest memory reports in_progress for WORK-7" in report.incomplete_work
     assert session_context.exists()
     assert "Finish Snowflake query builder tests" in session_context.read_text(encoding="utf-8")
+
+
+def test_format_progress_update_is_human_readable() -> None:
+    text = format_progress_update(
+        HarnessProgressUpdate(
+            work_id="WORK-14",
+            status="in_progress",
+            message="Pulled metadata for 12 tables and started scoring descriptions.",
+            details=(
+                "7 columns are missing descriptions.",
+                "3 descriptions are too generic for reliable agent analysis.",
+            ),
+            generated_at="2026-07-17T12:00:00+00:00",
+        )
+    )
+
+    assert "## Agent Progress Update - 2026-07-17T12:00:00+00:00" in text
+    assert "Status: in_progress" in text
+    assert "Work ID: WORK-14" in text
+    assert "- 7 columns are missing descriptions." in text
+
+
+def test_publish_progress_update_appends_to_configured_google_doc(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = tmp_path / "agent_harness.toml"
+    config.write_text(
+        f"""
+[repo]
+path = "{repo}"
+
+[locations]
+progress = "gdoc://progress-doc"
+""",
+        encoding="utf-8",
+    )
+    loaded = load_harness_config(config)
+    progress = FakeGoogleDocsProgress()
+
+    publish_progress_update(
+        loaded,
+        HarnessProgressUpdate(
+            work_id="WORK-15",
+            status="completed",
+            completed=True,
+            message="Metadata description analysis completed.",
+            generated_at="2026-07-17T12:30:00+00:00",
+        ),
+        readers=LocationReaders(google_docs_progress=progress),
+    )
+
+    assert progress.appended == [
+        (
+            "progress-doc",
+            "\n".join(
+                [
+                    "",
+                    "## Agent Progress Update - 2026-07-17T12:30:00+00:00",
+                    "",
+                    "Status: completed",
+                    "Work ID: WORK-15",
+                    "",
+                    "Metadata description analysis completed.",
+                    "",
+                    "Completion: work marked complete.",
+                    "",
+                ]
+            ),
+        )
+    ]
+
+
+def test_publish_progress_update_requires_google_doc_location(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = tmp_path / "agent_harness.toml"
+    config.write_text(
+        f"""
+[repo]
+path = "{repo}"
+
+[locations]
+progress = ".agent_harness/progress.md"
+""",
+        encoding="utf-8",
+    )
+    loaded = load_harness_config(config)
+
+    try:
+        publish_progress_update(loaded, HarnessProgressUpdate(message="Started."))
+    except ValueError as exc:
+        assert "Google Doc" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for non-Google Doc progress location.")
 
 
 def _write_work_file(tmp_path: Path, content: str) -> Path:

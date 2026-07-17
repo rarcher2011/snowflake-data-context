@@ -42,6 +42,7 @@ Optional remote locations:
 memory = "s3://my-agent-state/memory/"
 status = "gs://my-agent-state/status.json"
 work = "gdoc://google-doc-id-for-work-queue"
+progress = "gdoc://google-doc-id-for-human-readable-progress"
 
 [locations.config]
 backend = "google_doc"
@@ -145,6 +146,43 @@ report = initialize_agent_session("agent_harness.toml", readers=readers)
 ```
 
 Remote readers are read-only in the current harness. Agents should still write the generated session context locally and let a supervising workflow decide whether to persist updated memory or status back to remote storage.
+
+## Human-Readable Progress Updates
+
+Configure `locations.progress` with a Google Doc URI when agents should append human-readable status updates as work progresses:
+
+```toml
+[locations]
+progress = "gdoc://google-doc-id-for-human-readable-progress"
+```
+
+Use `publish_progress_update` with a Google Docs progress writer:
+
+```python
+from openai_snowflake_agent_context.agent_harness import (
+    HarnessProgressUpdate,
+    load_harness_config,
+    publish_progress_update,
+)
+from openai_snowflake_agent_context.agent_harness_cloud import build_google_docs_text_store
+from openai_snowflake_agent_context.agent_harness_locations import LocationReaders
+
+config = load_harness_config("agent_harness.toml")
+docs = build_google_docs_text_store(authenticated_docs_service)
+
+publish_progress_update(
+    config,
+    HarnessProgressUpdate(
+        work_id="WORK-7",
+        status="in_progress",
+        message="Pulled metadata for 42 tables and started description quality scoring.",
+        details=("11 columns are missing descriptions.", "6 descriptions are too generic."),
+    ),
+    readers=LocationReaders(google_docs_progress=docs),
+)
+```
+
+Progress updates are append-only and intended for human readers. They do not replace structured memory or status files.
 
 ## Agent Behavior
 

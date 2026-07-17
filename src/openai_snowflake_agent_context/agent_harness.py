@@ -14,6 +14,7 @@ from .agent_harness_locations import (
     LocationReaders,
     LocationSpec,
     list_text_location,
+    parse_google_doc_id,
     parse_location_spec,
     read_text_location,
 )
@@ -49,6 +50,7 @@ class HarnessConfig:
     status_location: LocationSpec | None = None
     work_location: LocationSpec | None = None
     config_location: LocationSpec | None = None
+    progress_location: LocationSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,18 @@ class HarnessReport:
             lines.append("Warnings:")
             lines.extend(f"- {warning}" for warning in self.warnings)
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class HarnessProgressUpdate:
+    """Human-readable progress update for a long-running agent run."""
+
+    message: str
+    work_id: str | None = None
+    status: str | None = None
+    completed: bool = False
+    details: tuple[str, ...] = ()
+    generated_at: str | None = None
 
 
 def initialize_agent_session(
@@ -175,6 +189,7 @@ def load_harness_config(config_path: Path) -> HarnessConfig:
         status_location=_parse_optional_location(locations.get("status"), repo_path),
         work_location=_parse_optional_location(locations.get("work"), repo_path),
         config_location=_parse_optional_location(locations.get("config"), repo_path),
+        progress_location=_parse_optional_location(locations.get("progress"), repo_path),
     )
 
 
@@ -195,10 +210,55 @@ def validate_config(config: HarnessConfig) -> list[str]:
         ("status", config.status_location),
         ("work", config.work_location),
         ("config", config.config_location),
+        ("progress", config.progress_location),
     ):
         if location is not None and location.backend != "local":
             warnings.append(f"{label} is configured for remote backend {location.backend}: {location.uri}")
     return warnings
+
+
+def publish_progress_update(
+    config: HarnessConfig,
+    update: HarnessProgressUpdate,
+    readers: LocationReaders | None = None,
+) -> None:
+    """Append a human-readable progress update to the configured progress location."""
+
+    if config.progress_location is None:
+        raise RuntimeError("Progress update location is not configured.")
+    if config.progress_location.backend != "google_doc":
+        raise ValueError("Progress updates currently require a Google Doc location.")
+
+    readers = readers or LocationReaders()
+    progress_store = readers.google_docs_progress
+    if progress_store is None:
+        raise RuntimeError("Google Docs progress writer is not configured.")
+
+    progress_store.append_document_text(
+        parse_google_doc_id(config.progress_location.uri),
+        format_progress_update(update),
+    )
+
+
+def format_progress_update(update: HarnessProgressUpdate) -> str:
+    """Format one progress update for human readers in a shared Google Doc."""
+
+    generated_at = update.generated_at or datetime.now(timezone.utc).isoformat()
+    lines = [
+        "",
+        f"## Agent Progress Update - {generated_at}",
+        "",
+        f"Status: {update.status or 'in_progress'}",
+    ]
+    if update.work_id:
+        lines.append(f"Work ID: {update.work_id}")
+    lines.extend(["", update.message])
+    if update.details:
+        lines.extend(["", "Details:"])
+        lines.extend(f"- {detail}" for detail in update.details)
+    if update.completed:
+        lines.extend(["", "Completion: work marked complete."])
+    return "\n".join(lines) + "\n"
 
 
 def find_latest_memory(memory_dir: Path) -> MemoryRecord:

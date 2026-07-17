@@ -72,6 +72,23 @@ class GoogleDocsTextStore:
         document = self._service.documents().get(documentId=document_id).execute()
         return extract_google_doc_text(document)
 
+    def append_document_text(self, document_id: str, text: str) -> None:
+        document = self._service.documents().get(documentId=document_id).execute()
+        insert_index = _append_index(document)
+        self._service.documents().batchUpdate(
+            documentId=document_id,
+            body={
+                "requests": [
+                    {
+                        "insertText": {
+                            "location": {"index": insert_index},
+                            "text": text,
+                        }
+                    }
+                ]
+            },
+        ).execute()
+
 
 def build_boto3_s3_text_store(**client_kwargs: Any) -> Boto3S3TextStore:
     """Build an S3 text store using boto3, imported only when requested."""
@@ -108,6 +125,17 @@ def extract_google_doc_text(document: dict[str, Any]) -> str:
             if text_run and "content" in text_run:
                 chunks.append(str(text_run["content"]))
     return "".join(chunks)
+
+
+def _append_index(document: dict[str, Any]) -> int:
+    content = document.get("body", {}).get("content", [])
+    if not content:
+        return 1
+    last = content[-1]
+    end_index = last.get("endIndex")
+    if isinstance(end_index, int) and end_index > 1:
+        return end_index - 1
+    return 1
 
 
 def _is_text_name(name: str) -> bool:

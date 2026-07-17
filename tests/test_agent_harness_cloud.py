@@ -99,21 +99,59 @@ class FakeDocsExecute:
         }
 
 
+class FakeBatchExecute:
+    def execute(self) -> dict[str, object]:
+        return {}
+
+
 class FakeDocuments:
+    def __init__(self) -> None:
+        self.batch_update_calls: list[dict[str, object]] = []
+
     def get(self, **kwargs: str) -> FakeDocsExecute:
         assert kwargs == {"documentId": "doc-13"}
         return FakeDocsExecute()
 
+    def batchUpdate(self, **kwargs: object) -> FakeBatchExecute:
+        self.batch_update_calls.append(kwargs)
+        return FakeBatchExecute()
+
 
 class FakeDocsService:
+    def __init__(self) -> None:
+        self.documents_instance = FakeDocuments()
+
     def documents(self) -> FakeDocuments:
-        return FakeDocuments()
+        return self.documents_instance
 
 
 def test_google_docs_text_store_extracts_plain_text() -> None:
     store = GoogleDocsTextStore(FakeDocsService())
 
     assert store.read_document_text("doc-13") == "status: in_progress\nwork_id: WORK-13\n"
+
+
+def test_google_docs_text_store_appends_progress_text_at_document_end() -> None:
+    service = FakeDocsService()
+    store = GoogleDocsTextStore(service)
+
+    store.append_document_text("doc-13", "\n## Agent Progress Update\nStarted.\n")
+
+    assert service.documents_instance.batch_update_calls == [
+        {
+            "documentId": "doc-13",
+            "body": {
+                "requests": [
+                    {
+                        "insertText": {
+                            "location": {"index": 1},
+                            "text": "\n## Agent Progress Update\nStarted.\n",
+                        }
+                    }
+                ]
+            },
+        }
+    ]
 
 
 def test_extract_google_doc_text_ignores_non_paragraph_content() -> None:

@@ -15,6 +15,7 @@ session_context_file = ".agent_harness/session_context.md"
 # memory = "s3://my-agent-state/memory/"
 # status = "gs://my-agent-state/status.json"
 # work = "gdoc://google-doc-id-for-work-queue"
+# progress = "gdoc://google-doc-id-for-human-readable-progress"
 #
 # [locations.config]
 # backend = "google_doc"

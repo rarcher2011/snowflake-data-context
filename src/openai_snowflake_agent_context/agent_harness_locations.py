@@ -55,6 +55,13 @@ class GoogleDocStore(Protocol):
         """Read one Google Doc as text."""
 
 
+class GoogleDocProgressStore(Protocol):
+    """Minimal protocol for appending human-readable Google Doc progress updates."""
+
+    def append_document_text(self, document_id: str, text: str) -> None:
+        """Append text to one Google Doc."""
+
+
 @dataclass(frozen=True)
 class LocationReaders:
     """Optional remote readers supplied by the caller or integration layer."""
@@ -62,6 +69,7 @@ class LocationReaders:
     s3: TextObjectStore | None = None
     gcs: TextObjectStore | None = None
     google_docs: GoogleDocStore | None = None
+    google_docs_progress: GoogleDocProgressStore | None = None
 
 
 def parse_location_spec(raw: object, base_path: Path) -> LocationSpec:
