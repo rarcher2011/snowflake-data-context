@@ -1,0 +1,76 @@
+from openai_snowflake_agent_context.chatgpt_plugin import (
+    MetadataAnalysisRequest,
+    ProgressUpdateRequest,
+    build_ai_plugin_manifest,
+    build_openapi_schema,
+    execute_format_progress_update,
+    execute_metadata_description_analysis,
+)
+
+
+def test_execute_metadata_description_analysis_returns_agent_quality_report() -> None:
+    payload = MetadataAnalysisRequest.model_validate(
+        {
+            "tables": [
+                {
+                    "database": "ANALYTICS",
+                    "schema": "PUBLIC",
+                    "name": "ORDERS",
+                    "kind": "TABLE",
+                    "description": "Order fact table with one row per customer order.",
+                    "columns": [
+                        "ORDER_ID NUMBER -- Unique identifier for an order from the commerce system.",
+                        "CUSTOMER_ID NUMBER",
+                    ],
+                }
+            ]
+        }
+    )
+
+    result = execute_metadata_description_analysis(payload)
+
+    assert result["total_tables"] == 1
+    assert result["total_columns"] == 2
+    assert result["missing_column_descriptions"] == 1
+    assert result["tables"][0]["table_identifier"] == "ANALYTICS.PUBLIC.ORDERS"
+
+
+def test_execute_format_progress_update_returns_formatted_text() -> None:
+    payload = ProgressUpdateRequest(
+        work_id="WORK-20",
+        status="completed",
+        completed=True,
+        message="Finished metadata description analysis.",
+        details=["4 columns need better descriptions."],
+        generated_at="2026-07-18T12:00:00+00:00",
+    )
+
+    result = execute_format_progress_update(payload)
+
+    assert result["text"].startswith("\n## Agent Progress Update - 2026-07-18T12:00:00+00:00")
+    assert "Status: completed" in result["text"]
+    assert "Completion: work marked complete." in result["text"]
+
+
+def test_build_openapi_schema_exposes_chatgpt_callable_operations() -> None:
+    schema = build_openapi_schema("https://actions.example.com")
+
+    assert schema["openapi"] == "3.1.0"
+    assert schema["servers"] == [{"url": "https://actions.example.com"}]
+    assert (
+        schema["paths"]["/metadata/description-analysis"]["post"]["operationId"]
+        == "analyzeMetadataDescriptions"
+    )
+    assert (
+        schema["paths"]["/harness/progress-updates/format"]["post"]["operationId"]
+        == "formatHarnessProgressUpdate"
+    )
+
+
+def test_build_ai_plugin_manifest_points_to_openapi_schema() -> None:
+    manifest = build_ai_plugin_manifest("https://actions.example.com/openapi.json")
+
+    assert manifest["schema_version"] == "v1"
+    assert manifest["name_for_model"] == "snowflake_agent_context"
+    assert manifest["api"]["url"] == "https://actions.example.com/openapi.json"
+
