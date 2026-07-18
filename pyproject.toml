@@ -36,6 +36,10 @@ cloud = [
   "google-cloud-storage>=2.16.0",
   "google-api-python-client>=2.130.0",
 ]
+chatgpt-plugin = [
+  "fastapi>=0.115.0",
+  "uvicorn>=0.30.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openai_snowflake_agent_context"]

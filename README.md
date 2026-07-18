@@ -27,6 +27,10 @@ The SDK extension exposes `analyze_table_metadata_descriptions` for scoring tabl
 
 The analysis reports description coverage, weak or missing column descriptions, quality scores, issues, and improvement recommendations.
 
+## ChatGPT Actions Plugin
+
+The package includes an optional ChatGPT Actions/OpenAPI adapter so ChatGPT can execute selected SDK extension methods over HTTP. See [docs/CHATGPT_PLUGIN_ACTIONS.md](docs/CHATGPT_PLUGIN_ACTIONS.md).
+
 ## Status
 
 Design scaffold only. Implementation is intentionally not complete yet.
