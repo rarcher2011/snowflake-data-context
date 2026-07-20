@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Protocol
 from .config import SnowflakeContextConfig
 
 if TYPE_CHECKING:
+    from .description_updates import (
+        DescriptionUpdateRequest,
+        SnowflakeDescriptionUpdateResult,
+    )
     from .metadata_analysis import SchemaDescriptionAnalysis
 
 
@@ -24,10 +28,17 @@ class TableContext:
     context_markdown: str
 
 
+class SnowflakeCursor(Protocol):
+    """Minimal cursor protocol expected from Snowflake connector objects."""
+
+    def execute(self, sql: str) -> object:
+        """Execute one SQL statement."""
+
+
 class SnowflakeConnection(Protocol):
     """Minimal connection protocol expected from Snowflake connector objects."""
 
-    def cursor(self) -> object:
+    def cursor(self) -> SnowflakeCursor:
         """Return a cursor-like object."""
 
 
@@ -59,3 +70,29 @@ class SnowflakeMetadataProvider:
         from .metadata_analysis import analyze_table_metadata_descriptions
 
         return analyze_table_metadata_descriptions(self.describe_tables(table_names))
+
+    def update_descriptions(
+        self,
+        updates: list[DescriptionUpdateRequest],
+        apply: bool = False,
+    ) -> SnowflakeDescriptionUpdateResult:
+        """Plan and optionally apply Snowflake table/column description updates.
+
+        The default `apply=False` returns validated COMMENT statements for review.
+        Set `apply=True` only when the caller explicitly wants to execute the
+        generated statements against the configured Snowflake connection.
+        """
+        from .description_updates import (
+            SnowflakeDescriptionUpdateResult,
+            apply_description_update_plan,
+            build_description_update_plan,
+        )
+
+        plan = build_description_update_plan(
+            updates,
+            default_database=self._config.database,
+            default_schema=self._config.schema,
+        )
+        if apply:
+            apply_description_update_plan(self._connection, plan)
+        return SnowflakeDescriptionUpdateResult(plan=plan, applied=apply)
