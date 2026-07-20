@@ -27,6 +27,10 @@ The SDK extension exposes `analyze_table_metadata_descriptions` for scoring tabl
 
 The analysis reports description coverage, weak or missing column descriptions, quality scores, issues, and improvement recommendations.
 
+## Snowflake Description Updates
+
+Use `DescriptionUpdateRequest` with `SnowflakeMetadataProvider.update_descriptions(...)` to turn user-provided table and column descriptions into validated Snowflake `COMMENT ON TABLE` and `COMMENT ON COLUMN` statements. The method defaults to `apply=False` so callers can review SQL before writing to Snowflake; pass `apply=True` only when the user explicitly confirms execution.
+
 ## ChatGPT Actions Plugin
 
 The package includes an optional ChatGPT Actions/OpenAPI adapter so ChatGPT can execute selected SDK extension methods over HTTP. See [docs/CHATGPT_PLUGIN_ACTIONS.md](docs/CHATGPT_PLUGIN_ACTIONS.md).
