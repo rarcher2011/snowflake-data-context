@@ -31,6 +31,10 @@ The analysis reports description coverage, weak or missing column descriptions, 
 
 The package includes an optional ChatGPT Actions/OpenAPI adapter so ChatGPT can execute selected SDK extension methods over HTTP. See [docs/CHATGPT_PLUGIN_ACTIONS.md](docs/CHATGPT_PLUGIN_ACTIONS.md).
 
+## AWS Deployment
+
+Use `scripts/deploy_aws.py` to package and deploy the ChatGPT Actions adapter to AWS Lambda with a Lambda Function URL. See [docs/AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md).
+
 ## Status
 
 Design scaffold only. Implementation is intentionally not complete yet.
