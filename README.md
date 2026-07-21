@@ -15,6 +15,31 @@ The package is intended to make Snowflake metadata easy to retrieve, compact, ca
 
 See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
 
+## Quick Start
+
+Install the package in editable mode while the SDK extension is under active development:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+```
+
+Run the local verification suite:
+
+```bash
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy src
+```
+
+## Core Workflows
+
+Use the SDK extension in three main workflows:
+
+1. Analyze Snowflake metadata descriptions to find weak or missing documentation.
+2. Generate reviewed Snowflake `COMMENT` statements from user-provided improvements.
+3. Preserve long-running agent context with local or cloud-backed harness state.
+
 ## Long-Running Agent Harness
 
 This repository includes a file-based startup harness for long-running coding agents and analysis sessions. It recovers the latest memory file, status JSON, and configured work queue, then writes a compact session context file for the next agent context window.
@@ -27,9 +52,53 @@ The SDK extension exposes `analyze_table_metadata_descriptions` for scoring tabl
 
 The analysis reports description coverage, weak or missing column descriptions, quality scores, issues, and improvement recommendations.
 
+```python
+from openai_snowflake_agent_context import analyze_table_metadata_descriptions
+from openai_snowflake_agent_context.metadata import TableContext
+
+analysis = analyze_table_metadata_descriptions(
+    [
+        TableContext(
+            database="ANALYTICS",
+            schema="PUBLIC",
+            name="ORDERS",
+            kind="TABLE",
+            description="Order fact table with one row per customer order.",
+            columns=(
+                "ORDER_ID NUMBER -- Unique identifier from the commerce system.",
+                "CUSTOMER_ID NUMBER",
+            ),
+            context_markdown="",
+        )
+    ]
+)
+
+print(analysis.columns_needing_improvement)
+```
+
 ## Snowflake Description Updates
 
 Use `DescriptionUpdateRequest` with `SnowflakeMetadataProvider.update_descriptions(...)` to turn user-provided table and column descriptions into validated Snowflake `COMMENT ON TABLE` and `COMMENT ON COLUMN` statements. The method defaults to `apply=False` so callers can review SQL before writing to Snowflake; pass `apply=True` only when the user explicitly confirms execution.
+
+```python
+from openai_snowflake_agent_context import DescriptionUpdateRequest
+
+result = provider.update_descriptions(
+    [
+        DescriptionUpdateRequest(
+            table="ORDERS",
+            table_description="Order fact table with one row per customer order.",
+            column_descriptions={
+                "CUSTOMER_ID": "Customer identifier used to join account activity.",
+            },
+        )
+    ],
+    apply=False,
+)
+
+for statement in result.plan.statements:
+    print(statement.sql)
+```
 
 ## ChatGPT Actions Plugin
 
