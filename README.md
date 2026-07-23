@@ -12,6 +12,7 @@ The package is intended to make Snowflake metadata easy to retrieve, compact, ca
 - Support explicit table selection, semantic search over metadata, and token-budgeted context packing.
 - Offer safe defaults for credential handling, query limits, caching, and governance-aware redaction.
 - Analyze table and column description quality so agents can identify metadata gaps that weaken SQL generation and analysis.
+- Create explicit Snowflake sample tables for analysis workflows that need row-level examples.
 
 See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
 
@@ -99,6 +100,22 @@ result = provider.update_descriptions(
 for statement in result.plan.statements:
     print(statement.sql)
 ```
+
+## Snowflake Table Sampling
+
+The SDK extension exposes `sample_table` for creating a random Snowflake sample table from a source table:
+
+```python
+from openai_snowflake_agent_context import sample_table
+
+result = sample_table(
+    connection,
+    "ANALYTICS.PUBLIC.ORDERS",
+    "ANALYTICS.PUBLIC.ORDERS_SAMPLE",
+)
+```
+
+By default the helper executes a random one percent `SAMPLE BERNOULLI (1)` into the destination table. The returned status payload includes `sampled_table`, which the long-running harness can surface in later startup summaries and session context files.
 
 ## ChatGPT Actions Plugin
 

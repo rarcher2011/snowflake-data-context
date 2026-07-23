@@ -7,6 +7,9 @@ This repository includes a small ChatGPT Actions/OpenAPI adapter for executing s
 - `POST /metadata/description-analysis`
   - Calls `analyze_table_metadata_descriptions`.
   - Accepts table metadata payloads and returns description coverage, quality scores, and columns needing improvement.
+- `POST /metadata/sample-table`
+  - Calls `sample_table`.
+  - Accepts a source table name and destination table location, then creates a random one percent Snowflake sample table by default.
 - `POST /harness/progress-updates/format`
   - Calls `format_progress_update`.
   - Accepts progress fields and returns human-readable update text.
@@ -39,6 +42,8 @@ For a production ChatGPT Action, host the app at a public HTTPS URL and provide 
 
 ## Example Request
 
+Metadata description analysis:
+
 ```json
 {
   "tables": [
@@ -58,3 +63,14 @@ For a production ChatGPT Action, host the app at a public HTTPS URL and provide 
 }
 ```
 
+Table sampling:
+
+```json
+{
+  "table_name": "ANALYTICS.PUBLIC.ORDERS",
+  "destination_location": "ANALYTICS.PUBLIC.ORDERS_SAMPLE",
+  "sample_percent": 1
+}
+```
+
+The sampling response includes `sampled_table`, which can be copied into harness status so future agents reference the sampled table.

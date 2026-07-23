@@ -85,6 +85,19 @@ The status file is JSON:
 }
 ```
 
+If a Snowflake sampling run created a destination sample table, include that table in status so later startup summaries and generated session context point agents at the sample instead of the original source:
+
+```json
+{
+  "work_id": "WORK-7",
+  "status": "in_progress",
+  "source_table": "ANALYTICS.PUBLIC.ORDERS",
+  "sampled_table": "ANALYTICS.PUBLIC.ORDERS_SAMPLE"
+}
+```
+
+The harness also recognizes `sampled_table_identifier`, `destination_table`, and `destination_location` for compatibility with sampling method result payloads.
+
 ## Work Queue Format
 
 The default work file is Markdown. The first unchecked task is treated as the next work item:

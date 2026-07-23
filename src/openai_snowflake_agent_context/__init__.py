@@ -7,9 +7,12 @@ __all__ = [
     "SnowflakeDescriptionUpdatePlan",
     "SnowflakeDescriptionUpdateResult",
     "SnowflakeMetadataProvider",
+    "SampledTableResult",
     "analyze_table_metadata_descriptions",
+    "build_sample_table_sql",
     "build_openapi_schema",
     "create_app",
+    "sample_table",
 ]
 
 from .chatgpt_plugin import build_openapi_schema, create_app
@@ -21,3 +24,4 @@ from .description_updates import (
 )
 from .metadata import SnowflakeMetadataProvider
 from .metadata_analysis import SchemaDescriptionAnalysis, analyze_table_metadata_descriptions
+from .sampling import SampledTableResult, build_sample_table_sql, sample_table
