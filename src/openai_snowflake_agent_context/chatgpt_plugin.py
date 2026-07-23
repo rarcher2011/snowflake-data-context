@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .agent_harness import HarnessProgressUpdate, format_progress_update
 from .metadata import TableContext
 from .metadata_analysis import analyze_table_metadata_descriptions
+from .sampling import SnowflakeSamplingConnection, sample_table
 
 
 class TableContextPayload(BaseModel):
@@ -39,6 +40,14 @@ class ProgressUpdateRequest(BaseModel):
     completed: bool = False
     details: list[str] = Field(default_factory=list)
     generated_at: str | None = None
+
+
+class SampleTableRequest(BaseModel):
+    """Request body for creating a Snowflake sample table."""
+
+    table_name: str
+    destination_location: str
+    sample_percent: float = 1.0
 
 
 def execute_metadata_description_analysis(payload: MetadataAnalysisRequest) -> dict[str, Any]:
@@ -77,6 +86,21 @@ def execute_format_progress_update(payload: ProgressUpdateRequest) -> dict[str, 
     return {"text": text}
 
 
+def execute_sample_table(
+    payload: SampleTableRequest,
+    connection: SnowflakeSamplingConnection,
+) -> dict[str, Any]:
+    """Execute a Snowflake table sampling request for a ChatGPT action."""
+
+    result = sample_table(
+        connection,
+        payload.table_name,
+        payload.destination_location,
+        sample_percent=payload.sample_percent,
+    )
+    return result.to_status_update()
+
+
 def build_openapi_schema(server_url: str = "https://example.com") -> dict[str, Any]:
     """Return an OpenAPI schema suitable for ChatGPT Actions configuration."""
 
@@ -104,6 +128,26 @@ def build_openapi_schema(server_url: str = "https://example.com") -> dict[str, A
                     "responses": {
                         "200": {
                             "description": "Description quality rollup and recommendations.",
+                            "content": {"application/json": {"schema": {"type": "object"}}},
+                        }
+                    },
+                }
+            },
+            "/metadata/sample-table": {
+                "post": {
+                    "operationId": "sampleSnowflakeTable",
+                    "summary": "Create a random Snowflake sample table.",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": SampleTableRequest.model_json_schema()
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Sampled table metadata and executed SQL.",
                             "content": {"application/json": {"schema": {"type": "object"}}},
                         }
                     },
@@ -162,10 +206,11 @@ def build_ai_plugin_manifest(
         "schema_version": "v1",
         "name_for_human": "Snowflake Agent Context",
         "name_for_model": "snowflake_agent_context",
-        "description_for_human": "Analyze Snowflake metadata descriptions and format agent progress updates.",
+        "description_for_human": "Analyze Snowflake metadata descriptions, sample tables, and format agent progress updates.",
         "description_for_model": (
             "Use this service to execute SDK extension methods for Snowflake table metadata "
-            "description analysis and long-running agent progress update formatting."
+            "description analysis, random table sampling, and long-running agent progress "
+            "update formatting."
         ),
         "auth": {"type": "none"},
         "api": {"type": "openapi", "url": api_url, "is_user_authenticated": False},
@@ -175,11 +220,14 @@ def build_ai_plugin_manifest(
     }
 
 
-def create_app(server_url: str = "https://example.com") -> Any:
+def create_app(
+    server_url: str = "https://example.com",
+    snowflake_connection: SnowflakeSamplingConnection | None = None,
+) -> Any:
     """Create an optional FastAPI app exposing ChatGPT-callable actions."""
 
     try:
-        from fastapi import FastAPI  # type: ignore[import-not-found]
+        from fastapi import FastAPI, HTTPException  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - exercised only without optional deps
         raise RuntimeError(
             "Install the chatgpt-plugin extra to serve the action app: "
@@ -191,6 +239,15 @@ def create_app(server_url: str = "https://example.com") -> Any:
     @app.post("/metadata/description-analysis")  # type: ignore[untyped-decorator]
     def analyze_metadata_descriptions(payload: MetadataAnalysisRequest) -> dict[str, Any]:
         return execute_metadata_description_analysis(payload)
+
+    @app.post("/metadata/sample-table")  # type: ignore[untyped-decorator]
+    def sample_snowflake_table(payload: SampleTableRequest) -> dict[str, Any]:
+        if snowflake_connection is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Snowflake connection is not configured for table sampling.",
+            )
+        return execute_sample_table(payload, snowflake_connection)
 
     @app.post("/harness/progress-updates/format")  # type: ignore[untyped-decorator]
     def format_harness_progress_update(payload: ProgressUpdateRequest) -> dict[str, str]:

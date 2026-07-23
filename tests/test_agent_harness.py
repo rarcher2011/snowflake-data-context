@@ -163,6 +163,48 @@ session_context_file = ".agent_harness/session_context.md"
     assert "Finish Snowflake query builder tests" in session_context.read_text(encoding="utf-8")
 
 
+def test_initialize_agent_session_references_sampled_table_from_status(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    harness_dir = repo / ".agent_harness"
+    harness_dir.mkdir(parents=True)
+    (harness_dir / "status.json").write_text(
+        json.dumps(
+            {
+                "work_id": "WORK-8",
+                "status": "in_progress",
+                "sampled_table": "ANALYTICS.PUBLIC.ORDERS_SAMPLE",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (harness_dir / "work.md").write_text("", encoding="utf-8")
+    config = tmp_path / "agent_harness.toml"
+    config.write_text(
+        f"""
+[repo]
+path = "{repo}"
+
+[paths]
+memory_dir = ".agent_harness/memory"
+status_file = ".agent_harness/status.json"
+work_file = ".agent_harness/work.md"
+session_context_file = ".agent_harness/session_context.md"
+""",
+        encoding="utf-8",
+    )
+
+    report = initialize_agent_session(config)
+    session_context = harness_dir / "session_context.md"
+
+    assert "Sampled table: ANALYTICS.PUBLIC.ORDERS_SAMPLE" in report.summary_text()
+    assert (
+        "Sampled table: ANALYTICS.PUBLIC.ORDERS_SAMPLE"
+        in session_context.read_text(encoding="utf-8")
+    )
+
+
 def test_format_progress_update_is_human_readable() -> None:
     text = format_progress_update(
         HarnessProgressUpdate(

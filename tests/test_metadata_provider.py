@@ -9,6 +9,23 @@ class FakeConnection:
         return object()
 
 
+class FakeSamplingCursor:
+    def __init__(self) -> None:
+        self.executed_sql: list[str] = []
+
+    def execute(self, sql: str) -> object:
+        self.executed_sql.append(sql)
+        return self
+
+
+class FakeSamplingConnection:
+    def __init__(self) -> None:
+        self.cursor_instance = FakeSamplingCursor()
+
+    def cursor(self) -> FakeSamplingCursor:
+        return self.cursor_instance
+
+
 class FakeMetadataProvider(SnowflakeMetadataProvider):
     def __init__(self) -> None:
         super().__init__(
@@ -88,6 +105,26 @@ def test_analyze_schema_descriptions_passes_explicit_table_names() -> None:
     provider.analyze_schema_descriptions(["ANALYTICS.PUBLIC.ORDERS"])
 
     assert provider.requested_table_names == ["ANALYTICS.PUBLIC.ORDERS"]
+
+
+def test_provider_sample_table_delegates_to_sampling_helper() -> None:
+    connection = FakeSamplingConnection()
+    provider = SnowflakeMetadataProvider(
+        connection,
+        SnowflakeContextConfig(
+            account="test-account",
+            user="analyst",
+            warehouse="agent_wh",
+        ),
+    )
+
+    result = provider.sample_table(
+        "ANALYTICS.PUBLIC.ORDERS",
+        "ANALYTICS.PUBLIC.ORDERS_SAMPLE",
+    )
+
+    assert result.sampled_table == "ANALYTICS.PUBLIC.ORDERS_SAMPLE"
+    assert connection.cursor_instance.executed_sql == [result.sql]
 
 
 @pytest.mark.xfail(reason="Formatter module will be implemented during the next TDD phase.")

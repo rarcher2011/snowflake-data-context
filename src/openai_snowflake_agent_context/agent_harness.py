@@ -90,6 +90,7 @@ class HarnessReport:
         return asdict(self)
 
     def summary_text(self) -> str:
+        sampled_table = _sampled_table_from_status(self.status)
         lines = [
             "Agent harness initialized",
             f"Repo: {self.repo_path}",
@@ -98,6 +99,8 @@ class HarnessReport:
             f"Next work: {self.next_work.description if self.next_work else 'none'}",
             f"Session context: {self.session_context_file}",
         ]
+        if sampled_table:
+            lines.append(f"Sampled table: {sampled_table}")
         if self.incomplete_work:
             lines.append("Incomplete work:")
             lines.extend(f"- {item}" for item in self.incomplete_work)
@@ -438,6 +441,7 @@ def write_session_context(session_context_file: Path, report: HarnessReport) -> 
     session_context_file.parent.mkdir(parents=True, exist_ok=True)
     memory_path = str(report.memory.path) if report.memory.path else "none"
     next_work = report.next_work.description if report.next_work else "none"
+    sampled_table = _sampled_table_from_status(report.status)
 
     lines = [
         "# Agent Session Context",
@@ -451,6 +455,7 @@ def write_session_context(session_context_file: Path, report: HarnessReport) -> 
         f"Status file state: {report.status.get('status', 'unknown')}",
         f"Status file work_id: {report.status.get('work_id', 'unknown')}",
         f"Next work: {next_work}",
+        f"Sampled table: {sampled_table or 'none'}",
         "",
         "## Incomplete Work",
         "",
@@ -497,3 +502,20 @@ def _split_work_item_body(body: str) -> tuple[str, str]:
     if len(words) == 2 and re.match(r"^[A-Za-z]+-\d+$", words[0]):
         return words[0], words[1]
     return "work-1", body.strip()
+
+
+def _sampled_table_from_status(status: dict[str, Any]) -> str | None:
+    for key in (
+        "sampled_table",
+        "sampled_table_identifier",
+        "destination_table",
+        "destination_location",
+    ):
+        value = status.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    sample = status.get("sample")
+    if isinstance(sample, dict):
+        return _sampled_table_from_status(cast(dict[str, Any], sample))
+    return None

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
         SnowflakeDescriptionUpdateResult,
     )
     from .metadata_analysis import SchemaDescriptionAnalysis
+    from .sampling import SampledTableResult
 
 
 @dataclass(frozen=True)
@@ -96,3 +97,21 @@ class SnowflakeMetadataProvider:
         if apply:
             apply_description_update_plan(self._connection, plan)
         return SnowflakeDescriptionUpdateResult(plan=plan, applied=apply)
+
+    def sample_table(
+        self,
+        table_name: str,
+        destination_location: str,
+        *,
+        sample_percent: float = 1.0,
+    ) -> SampledTableResult:
+        """Create a random sample table and return the sampled-table metadata."""
+
+        from .sampling import sample_table
+
+        return sample_table(
+            self._connection,
+            table_name,
+            destination_location,
+            sample_percent=sample_percent,
+        )
