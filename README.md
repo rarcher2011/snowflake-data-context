@@ -127,4 +127,4 @@ Use `scripts/deploy_aws.py` to package and deploy the ChatGPT Actions adapter to
 
 ## Status
 
-Design scaffold only. Implementation is intentionally not complete yet.
+In progress
