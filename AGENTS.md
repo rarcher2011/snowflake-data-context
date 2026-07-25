@@ -6,11 +6,10 @@ Agents should treat this file as the first stop before making changes.
 
 ## Current Project Context
 
-- Primary local repo path: `/Users/richarcher/Documents/Codex/2026-07-02/creat/openai-snowflake-agent-context`.
 - GitHub remote: `https://github.com/rarcher2011/snowflake-data-context.git`.
 - Work is expected to happen on focused feature branches with pull requests.
 - Branches and PRs have been used heavily in this project. Always check the current branch before editing, because the checkout may be on a feature branch rather than `main`.
-- GitHub CLI auth and network access may vary by environment. Before pushing or opening a PR, check `gh auth status` and `git remote -v`. If network access is unavailable, leave a clear local handoff with the exact push or PR command.
+- Ensure to rebase main against origin before creating new branch
 - Do not assume a branch is pushed just because it has local commits. Confirm with `git status --short --branch`, `git branch -vv`, or `git ls-remote` when network is available.
 - If a user asks for a PR description, provide concise Markdown with summary, tests, and risk notes.
 
@@ -134,8 +133,6 @@ The harness exists to preserve continuity across long-running analysis and repea
 - Use focused commit messages that describe the behavior changed.
 - Run relevant tests before committing when feasible.
 - Push branches and open PRs when requested and network access is available.
-- If sandbox or network approval is unavailable, do the local work, commit it if appropriate, and provide exact commands for the user to run.
-- Backdated commits have been requested once in this project. Do not backdate commits unless the user explicitly asks, and use concrete dates in the commit metadata.
 
 ## Testing
 
