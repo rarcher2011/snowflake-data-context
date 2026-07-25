@@ -1,10 +1,43 @@
 # OpenAI Snowflake Agent Context
 
-Python extension helpers for enriching OpenAI SDK coding-agent workflows with Snowflake table descriptions, schema metadata, relationship hints, and governance context.
+OpenAI Snowflake Agent Context helps small and mid-sized businesses use coding agents for data discovery, analysis, and data transformation work in Snowflake.
 
-The package is intended to make Snowflake metadata easy to retrieve, compact, cache, and attach to OpenAI model/tool calls so coding agents can generate safer SQL, understand warehouse structure, and reason about existing analytical assets.
+Many companies have enough technical resources to maintain a data warehouse, but not enough analyst capacity to answer every data question, document every table, monitor every data quality issue, and keep every transformation backlog moving. This repo is designed for those teams: companies with part-time data support, one overloaded analyst, or engineers who understand the systems but cannot spend all day doing ad hoc analysis.
 
-## Planned Capabilities
+The package makes Snowflake metadata, table descriptions, sample tables, and long-running agent memory available to OpenAI SDK workflows so agents can understand warehouse structure, ask better questions, generate safer SQL, and keep analysis work moving across sessions.
+
+## Problem Being Solved
+
+Small and mid-sized businesses often face the same data problems as larger companies, but without a dedicated data platform team:
+
+- Important tables exist, but nobody knows which ones are trustworthy.
+- Column and table descriptions are missing, stale, or too vague for reliable analysis.
+- A single analyst becomes the bottleneck for dashboards, SQL requests, data cleanup, and business questions.
+- Engineers can help, but they need context before they can safely transform data or explain what it means.
+- Data quality issues and documentation gaps are found once, then forgotten because there is no continuous follow-up loop.
+- Analysis work spans days or weeks, but AI agents often lose continuity between context windows.
+
+This repo aims to turn those problems into agent-friendly workflows: discover the data estate, analyze metadata quality, sample tables when row-level examples are explicitly needed, document gaps, recommend next steps, and preserve enough memory for long-running analysis to continue coherently.
+
+## Intended Users
+
+- Small and mid-sized businesses using Snowflake without a large analytics team.
+- Teams with one analyst who needs help triaging requests and monitoring metadata quality.
+- Engineering teams that own data pipelines but need better discovery and analysis support.
+- Consultants or fractional data teams supporting multiple clients.
+- Agentic coding workflows that need structured warehouse context before generating SQL or transformations.
+
+## What This Enables
+
+- Discover Snowflake databases, schemas, tables, views, columns, comments, tags, policies, grants, and freshness signals.
+- Analyze table and column description quality so teams can see where metadata gaps weaken discovery and analysis.
+- Generate reviewable Snowflake description updates from user-provided improvements.
+- Create explicit random sample tables for analysis workflows that need row-level examples.
+- Preserve long-running analysis context with local or cloud-backed memory, status, work queues, and progress updates.
+- Continuously monitor and report on data gaps, documentation issues, and future feature opportunities.
+- Attach compact Snowflake context to OpenAI SDK workflows without forking or monkey-patching the official SDK.
+
+## Core Capabilities
 
 - Discover Snowflake databases, schemas, tables, views, columns, comments, tags, policies, grants, and freshness signals.
 - Convert Snowflake metadata into concise agent-ready context blocks.
@@ -13,8 +46,9 @@ The package is intended to make Snowflake metadata easy to retrieve, compact, ca
 - Offer safe defaults for credential handling, query limits, caching, and governance-aware redaction.
 - Analyze table and column description quality so agents can identify metadata gaps that weaken SQL generation and analysis.
 - Create explicit Snowflake sample tables for analysis workflows that need row-level examples.
+- Maintain coherent long-running agent sessions with memory, status, work intake, and human-readable progress updates.
 
-See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
+See [docs/SMB_ANALYTICS_WORKFLOWS.md](docs/SMB_ANALYTICS_WORKFLOWS.md) for the target SMB analytics workflows and [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
 
 ## Quick Start
 
@@ -40,10 +74,24 @@ Use the SDK extension in three main workflows:
 1. Analyze Snowflake metadata descriptions to find weak or missing documentation.
 2. Generate reviewed Snowflake `COMMENT` statements from user-provided improvements.
 3. Preserve long-running agent context with local or cloud-backed harness state.
+4. Create sampled tables for deeper analysis when metadata alone is not enough.
+5. Monitor unresolved data gaps, issues, and future feature requests over time.
+
+The long-term target is an agent-assisted analytics loop: discover data, identify gaps, recommend analyst or engineering work, carry context forward, and provide human-readable updates until the work is resolved.
+
+## Target Roadmap
+
+- Add typed discovery reports for Snowflake schemas and business domains.
+- Add first-class data gap, data issue, recommendation, and transformation candidate models.
+- Extend the harness status format to track unresolved data gaps and active analysis goals.
+- Add monitoring snapshots that compare current metadata health with previous runs.
+- Expose discovery reports and monitoring summaries through ChatGPT Actions and deployable service endpoints.
 
 ## Long-Running Agent Harness
 
 This repository includes a file-based startup harness for long-running coding agents and analysis sessions. It recovers the latest memory file, status JSON, and configured work queue, then writes a compact session context file for the next agent context window.
+
+For SMB analytics work, the harness is the continuity layer. It helps agents remember what was already investigated, what remains incomplete, which data gaps were found, whether a sampled table should be used, and what progress should be reported back to humans. This makes the repo useful for analysis that runs longer than one chat, one ticket, or one analyst work session.
 
 See [docs/LONG_RUNNING_AGENT_HARNESS.md](docs/LONG_RUNNING_AGENT_HARNESS.md) for usage and file formats.
 

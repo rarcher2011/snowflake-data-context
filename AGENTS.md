@@ -4,6 +4,8 @@ This repository builds Python extension helpers for using Snowflake table descri
 
 Agents should treat this file as the first stop before making changes.
 
+The current product direction is broader than metadata context alone: align future work with SMB analytics workflows for data discovery, analysis, transformation planning, monitoring, and continuous feedback for teams with limited analyst capacity. Read `README.md` and `docs/SMB_ANALYTICS_WORKFLOWS.md` before adding new roadmap or user-facing behavior.
+
 ## Current Project Context
 
 - GitHub remote: `https://github.com/rarcher2011/snowflake-data-context.git`.
@@ -97,6 +99,7 @@ The current codebase has grown beyond the initial scaffold. Before adding new AP
 - Human-readable Google Doc progress updates as long-running work advances.
 - ChatGPT Actions plugin adapter and OpenAPI schema helpers for executing SDK extension methods.
 - AWS Lambda deployment support and dry-run packaging checks.
+- Target-state SMB analytics workflows for discovery reports, data gaps, transformation candidates, monitoring snapshots, and analyst backlog generation are documented but not yet implemented.
 
 ## Development Practices
 
