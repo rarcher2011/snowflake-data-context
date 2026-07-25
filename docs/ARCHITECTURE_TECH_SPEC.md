@@ -100,6 +100,9 @@ prompt_block = format_table_context(context, token_budget=4000)
 `OpenAIExtensionLayer`
 : Provides wrapper functions that decorate `OpenAI` calls by injecting Snowflake context into request input or instructions. This layer must use public OpenAI SDK APIs only.
 
+`SamplingHelper`
+: Creates explicit random sample tables for workflows that need row-level examples. Sampling is opt-in, writes to a caller-provided destination table, and returns a status payload that downstream harness runs can use to reference the sampled table instead of the original source.
+
 ### 5.2 Data Flow
 
 1. Caller creates a Snowflake connection using their normal credential flow.
@@ -186,6 +189,7 @@ This keeps compatibility high as the official SDK evolves.
 - Never log credentials or full connection strings.
 - Default to metadata only, not row samples.
 - Require explicit opt-in for sample values.
+- Require an explicit destination table for random sampling and surface that sampled table in harness status/context if present.
 - Redact or annotate columns with sensitive tags, masking policies, or names matching configured sensitive patterns.
 - Include the active Snowflake role and database scope in debug metadata so users can diagnose missing catalog objects.
 - Make context injection visible to callers through optional debug output.
@@ -205,6 +209,24 @@ This keeps compatibility high as the official SDK evolves.
 - `cache_ttl_seconds`
 - `output_format`: `markdown` or `json`
 - `sensitive_name_patterns`
+
+## 10.1 Table Sampling
+
+The table sampling helper should remain separate from metadata retrieval. The initial contract is:
+
+```python
+from openai_snowflake_agent_context import sample_table
+
+result = sample_table(
+    connection,
+    "ANALYTICS.PUBLIC.ORDERS",
+    "ANALYTICS.PUBLIC.ORDERS_SAMPLE",
+)
+```
+
+The generated Snowflake SQL uses `CREATE OR REPLACE TABLE <destination> AS SELECT * FROM <source> SAMPLE BERNOULLI (1)` by default. Identifiers are quoted segment by segment, and `sample_percent` must be greater than zero and less than or equal to 100.
+
+The result includes `sampled_table`/`destination_table` fields intended for `.agent_harness/status.json`. When these fields are present, startup scripts should reference the sampled table in generated context so later agents analyze the sample table intentionally.
 
 ## 11. Caching
 
@@ -290,4 +312,3 @@ Contract tests:
 - A wrapper can inject that context into an OpenAI SDK call without changing the response type.
 - Tests cover formatting, redaction, SQL building, and wrapper behavior.
 - No credentials are logged or cached.
-

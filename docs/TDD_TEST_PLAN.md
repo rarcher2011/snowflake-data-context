@@ -24,6 +24,7 @@ The current suite covers the repository scaffold, public API, long-running harne
 - `tests/test_agent_harness.py` verifies local harness config loading, latest-memory parsing, JSON status loading, Markdown work queue parsing, mismatch detection, and session context generation.
 - `tests/test_agent_harness_locations.py` verifies local/S3/GCS/Google Docs location specs, object-store URI parsing, Google Doc ID parsing, remote memory/status/work reads with fake readers, and remote config declaration.
 - `tests/test_agent_harness_cloud.py` verifies the optional boto3 S3, Google Cloud Storage, and Google Docs adapter behavior using fake SDK clients.
+- `tests/test_sampling.py` verifies one percent Snowflake sample-table SQL generation, identifier quoting, execution through fake cursors, and sampled-table status payloads.
 
 Current verification commands:
 
@@ -66,6 +67,17 @@ Covered behavior:
 - Google Docs can be used as a work queue location.
 - Remote config locations can be declared for bootstrap metadata.
 - Optional cloud adapter classes can read/list text content from fake boto3, GCS, and Google Docs clients.
+
+### Slice D: Explicit Snowflake Table Sampling
+
+Covered behavior:
+
+- Sampling builds `CREATE OR REPLACE TABLE` SQL with `SAMPLE BERNOULLI (1)` by default.
+- Source and destination Snowflake identifiers are quoted segment by segment.
+- Invalid sample percentages and malformed identifier paths are rejected before execution.
+- Fake cursor tests verify the sampling helper executes the generated SQL.
+- Sampling results expose `sampled_table` status fields so later harness starts can reference the sampled table.
+- Harness session context includes the sampled table when status declares one.
 
 ## Next TDD Slices
 
@@ -251,4 +263,3 @@ Fixture data must not contain real credentials, customer data, or private wareho
 .venv/bin/python -m ruff check .
 .venv/bin/python -m mypy src
 ```
-
