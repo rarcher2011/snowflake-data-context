@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the test-first path for building the Snowflake metadata context extension and the long-running agent harness. The project should add or update tests before implementation code, then use the smallest implementation that makes those tests pass.
+This document defines the test-first path for building the Snowflake metadata context extension, the long-running agent harness, and the SMB analytics workflows described in `docs/SMB_ANALYTICS_WORKFLOWS.md`. The project should add or update tests before implementation code, then use the smallest implementation that makes those tests pass.
 
 ## Testing Principles
 
@@ -13,6 +13,8 @@ This document defines the test-first path for building the Snowflake metadata co
 - Prefer small modules with narrow tests over broad end-to-end tests during early implementation.
 - Add integration tests only when they automatically skip without credentials.
 - Keep credential, connection-string, and sample-data handling covered by negative tests.
+- Treat SMB-facing reports as product contracts: wording can evolve, but finding categories, priorities, and recommended actions should be stable enough to test.
+- Keep transformation recommendations reviewable. Tests should prove the package produces plans, not silent production changes.
 
 ## Current Test Coverage
 
@@ -80,6 +82,97 @@ Covered behavior:
 - Harness session context includes the sampled table when status declares one.
 
 ## Next TDD Slices
+
+### Slice 0: SMB Analytics Domain Models
+
+Write tests first for:
+
+- `DataGap` severity, category, source table, source column, and recommendation fields.
+- `DataIssue` for freshness, governance, schema, and quality concerns.
+- `AnalysisWorkItem` for analyst, engineer, agent, and stakeholder-question work.
+- `TransformationCandidate` for reviewable transformation recommendations.
+- `MonitoringSnapshot` for point-in-time metadata health.
+- Serialization to dictionaries suitable for harness status and ChatGPT Actions responses.
+
+Expected modules:
+
+- `analytics_models.py`
+
+Exit criteria:
+
+- Public dataclasses or Pydantic models represent SMB analytics work without requiring live Snowflake access.
+- Models can be serialized without credentials or raw sampled data.
+
+### Slice 0.1: Discovery Reports
+
+Write tests first for:
+
+- Discovery report summary metrics for scanned tables and columns.
+- Missing and weak description findings converted into prioritized data gaps.
+- Tables with unclear grain or missing business usage notes flagged for follow-up.
+- Report output that separates observations, recommendations, and stakeholder questions.
+- Markdown and JSON report formats.
+
+Expected modules:
+
+- `discovery_report.py`
+
+Exit criteria:
+
+- A caller can turn existing `TableContext` and description analysis objects into an SMB-friendly discovery report.
+
+### Slice 0.2: Analyst Backlog Generation
+
+Write tests first for:
+
+- Data gaps converted into actionable work items.
+- Work items labeled by owner type: analyst, engineer, agent, or stakeholder.
+- Prioritization by severity, affected table count, and whether the issue blocks analysis.
+- Stable output for harness work queues.
+
+Expected modules:
+
+- `analytics_backlog.py`
+
+Exit criteria:
+
+- A discovery report can produce a reviewable backlog that the harness can carry into future sessions.
+
+### Slice 0.3: Transformation Recommendations
+
+Write tests first for:
+
+- Candidate staging models for raw or poorly documented tables.
+- Reporting-view suggestions when multiple related tables are present.
+- Relationship-validation tasks when joins are inferred but uncertain.
+- Cleanup recommendations for generic status, type, or category fields.
+- Human approval markers for any generated SQL plan.
+
+Expected modules:
+
+- `transformation_analysis.py`
+
+Exit criteria:
+
+- The package can recommend transformation candidates without executing transformation SQL.
+
+### Slice 0.4: Monitoring Snapshots
+
+Write tests first for:
+
+- Snapshot creation from a discovery report.
+- Comparison between previous and current snapshots.
+- New, persistent, and resolved data gaps.
+- Human-readable monitoring summaries.
+- Harness status fields for recurring monitoring runs.
+
+Expected modules:
+
+- `monitoring.py`
+
+Exit criteria:
+
+- Recurring agent runs can report what changed since the last analysis.
 
 ### Slice 1: Metadata Models and Formatting
 

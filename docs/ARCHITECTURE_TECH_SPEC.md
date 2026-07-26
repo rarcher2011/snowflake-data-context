@@ -2,21 +2,27 @@
 
 ## 1. Purpose
 
-This repository will provide Python extension helpers for the official OpenAI Python SDK that let coding agents use Snowflake table descriptions and metadata as reliable working context.
+This repository will provide Python extension helpers and long-running agent harness patterns that help small and mid-sized businesses use Snowflake data more effectively. The immediate technical foundation is Snowflake metadata context for OpenAI SDK workflows. The broader product goal is to support data discovery, analysis, transformation planning, monitoring, and feedback loops for teams that have some technical resources but limited analyst capacity.
 
-The goal is not to fork or replace the OpenAI SDK. The goal is to sit beside it with small, composable helpers that:
+The goal is not to fork or replace the OpenAI SDK. The goal is to sit beside it with small, composable helpers that let agents:
 
 - Retrieve Snowflake schema and governance metadata.
 - Normalize that metadata into strongly typed Python objects.
 - Rank and compress it for a model context window.
 - Attach the resulting context to OpenAI SDK requests, agent instructions, tool definitions, or local agent runtimes.
+- Identify metadata gaps, data issues, and transformation opportunities.
+- Preserve analysis memory, status, and unresolved work across long-running agent sessions.
+- Produce human-readable progress updates for teams that need visibility but do not have a dedicated analytics operations function.
 
 ## 2. Primary Use Cases
 
 - A coding agent needs to write SQL against a Snowflake warehouse and must understand table purpose, columns, comments, and relationships.
+- A small business needs to discover which Snowflake tables are useful and trustworthy before asking an agent to analyze or transform them.
+- A company has one overloaded analyst and needs automated triage of metadata gaps, data issues, and future analysis work.
 - A data engineer wants generated SQL to respect masking policies, tags, grants, and known sensitive fields.
 - A model needs a compact description of relevant tables instead of an entire database catalog dump.
 - A local development workflow needs reproducible metadata snapshots so tests and generated code are not dependent on live warehouse access.
+- A long-running analysis needs continuity across context windows, restarts, and handoffs.
 
 ## 3. Non-Goals
 
@@ -25,6 +31,8 @@ The goal is not to fork or replace the OpenAI SDK. The goal is to sit beside it 
 - Store Snowflake credentials in this package.
 - Depend on private OpenAI SDK internals.
 - Build a full semantic catalog product.
+- Replace analyst judgment, business stakeholder review, or formal data governance processes.
+- Automatically deploy data transformations without explicit human approval.
 
 ## 4. Package Shape
 
@@ -41,6 +49,11 @@ openai_snowflake_agent_context/
   snowflake_queries.py
   ranking.py
   redaction.py
+  analytics_models.py
+  discovery_report.py
+  analytics_backlog.py
+  transformation_analysis.py
+  monitoring.py
 ```
 
 Initial public API:
@@ -103,6 +116,21 @@ prompt_block = format_table_context(context, token_budget=4000)
 `SamplingHelper`
 : Creates explicit random sample tables for workflows that need row-level examples. Sampling is opt-in, writes to a caller-provided destination table, and returns a status payload that downstream harness runs can use to reference the sampled table instead of the original source.
 
+`DiscoveryReportBuilder`
+: Aggregates table metadata, description quality, sampling status, and governance hints into an analyst-readable discovery report for a database, schema, or business domain.
+
+`DataGapAnalyzer`
+: Converts missing descriptions, weak descriptions, unclear grain, stale metadata, missing relationships, and other catalog signals into prioritized data gaps.
+
+`TransformationPlanner`
+: Uses metadata and optional sampled-table context to recommend reviewable transformation candidates, such as staging models, cleanup rules, reporting views, and relationship checks.
+
+`MonitoringSnapshotStore`
+: Persists recurring metadata-health and data-gap snapshots so agents can compare current state with previous runs.
+
+`AnalyticsWorkOrchestrator`
+: Turns discovery findings into work items, tracks unresolved issues, and updates long-running harness state for future agent sessions.
+
 ### 5.2 Data Flow
 
 1. Caller creates a Snowflake connection using their normal credential flow.
@@ -114,6 +142,22 @@ prompt_block = format_table_context(context, token_budget=4000)
 7. Ranker selects the most relevant objects for the task and token budget.
 8. Formatter emits agent-ready context.
 9. OpenAI extension wrapper injects context into the SDK call.
+
+### 5.3 SMB Analytics Data Flow
+
+The target SMB analytics loop sits above the raw metadata flow:
+
+1. Agent starts from harness memory, status, and configured work.
+2. Provider retrieves metadata for the configured Snowflake scope.
+3. Description analysis scores table and column readiness.
+4. Discovery report groups tables, weak documentation, governance warnings, and unknowns.
+5. Data gap analyzer creates prioritized gaps and recommendations.
+6. Transformation planner proposes reviewable transformation candidates when enough context exists.
+7. Monitoring snapshot compares current findings with previous runs.
+8. Harness records active goals, unresolved gaps, sampled tables, and next work items.
+9. Progress updates communicate what changed and what still needs human review.
+
+Metadata remains the source input. Analyst-ready work products are the output.
 
 ## 6. Snowflake Metadata Sources
 
@@ -166,6 +210,18 @@ Usage notes:
 
 JSON output should be available for agent frameworks that prefer structured tool context.
 
+## 7.1 Discovery Report Format
+
+Discovery reports should be readable by both humans and agents. A report should include:
+
+- Scope: account, role, database, schema, and selected tables.
+- Summary: tables scanned, columns scanned, coverage metrics, and high-priority findings.
+- Data gaps: missing descriptions, weak descriptions, unclear ownership, unclear grain, missing relationships, stale metadata, or governance warnings.
+- Recommended next work: analyst tasks, engineering tasks, stakeholder questions, and safe agent-delegable actions.
+- Sampling status: whether a sampled table exists and whether row-level analysis was explicitly requested.
+- Transformation candidates: proposed views, staging models, cleanup rules, or relationship validations.
+- Monitoring context: new, persistent, and resolved gaps compared with a previous snapshot.
+
 ## 8. OpenAI SDK Extension Strategy
 
 Avoid monkey-patching the `openai` package. Provide wrapper functions and typed utilities:
@@ -193,6 +249,9 @@ This keeps compatibility high as the official SDK evolves.
 - Redact or annotate columns with sensitive tags, masking policies, or names matching configured sensitive patterns.
 - Include the active Snowflake role and database scope in debug metadata so users can diagnose missing catalog objects.
 - Make context injection visible to callers through optional debug output.
+- Distinguish metadata observations from inferred business meaning.
+- Keep discovery reports and monitoring snapshots free of raw sensitive row data unless the caller explicitly opts in.
+- Mark transformation recommendations as plans until a human confirms execution.
 
 ## 10. Configuration
 
@@ -227,6 +286,18 @@ result = sample_table(
 The generated Snowflake SQL uses `CREATE OR REPLACE TABLE <destination> AS SELECT * FROM <source> SAMPLE BERNOULLI (1)` by default. Identifiers are quoted segment by segment, and `sample_percent` must be greater than zero and less than or equal to 100.
 
 The result includes `sampled_table`/`destination_table` fields intended for `.agent_harness/status.json`. When these fields are present, startup scripts should reference the sampled table in generated context so later agents analyze the sample table intentionally.
+
+## 10.2 SMB Analytics Configuration
+
+Future configuration should support analytics-operating settings in addition to Snowflake connection scope:
+
+- `business_domain`: optional domain label such as finance, sales, operations, product, or support.
+- `analysis_goal`: the current long-running analysis objective.
+- `monitoring_frequency`: advisory cadence for recurring checks.
+- `gap_priority_threshold`: minimum priority to include in human-facing reports.
+- `transformation_mode`: `off`, `recommend_only`, or `plan_sql`.
+- `progress_audience`: intended reader for status updates, such as analyst, engineer, executive, or client.
+- `stakeholder_questions_enabled`: whether reports should include business questions that need human answers.
 
 ## 11. Caching
 

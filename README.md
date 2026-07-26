@@ -1,10 +1,43 @@
 # OpenAI Snowflake Agent Context
 
-Python extension helpers for enriching OpenAI SDK coding-agent workflows with Snowflake table descriptions, schema metadata, relationship hints, and governance context.
+OpenAI Snowflake Agent Context helps small and mid-sized businesses use coding agents for data discovery, analysis, and data transformation work in Snowflake.
 
-The package is intended to make Snowflake metadata easy to retrieve, compact, cache, and attach to OpenAI model/tool calls so coding agents can generate safer SQL, understand warehouse structure, and reason about existing analytical assets.
+Many companies have enough technical resources to maintain a data warehouse, but not enough analyst capacity to answer every data question, document every table, monitor every data quality issue, and keep every transformation backlog moving. This repo is designed for those teams: companies with part-time data support, one overloaded analyst, or engineers who understand the systems but cannot spend all day doing ad hoc analysis.
 
-## Planned Capabilities
+The package makes Snowflake metadata, table descriptions, sample tables, and long-running agent memory available to OpenAI SDK workflows so agents can understand warehouse structure, ask better questions, generate safer SQL, and keep analysis work moving across sessions.
+
+## Problem Being Solved
+
+Small and mid-sized businesses often face the same data problems as larger companies, but without a dedicated data platform team:
+
+- Important tables exist, but nobody knows which ones are trustworthy.
+- Column and table descriptions are missing, stale, or too vague for reliable analysis.
+- A single analyst becomes the bottleneck for dashboards, SQL requests, data cleanup, and business questions.
+- Engineers can help, but they need context before they can safely transform data or explain what it means.
+- Data quality issues and documentation gaps are found once, then forgotten because there is no continuous follow-up loop.
+- Analysis work spans days or weeks, but AI agents often lose continuity between context windows.
+
+This repo aims to turn those problems into agent-friendly workflows: discover the data estate, analyze metadata quality, sample tables when row-level examples are explicitly needed, document gaps, recommend next steps, and preserve enough memory for long-running analysis to continue coherently.
+
+## Intended Users
+
+- Small and mid-sized businesses using Snowflake without a large analytics team.
+- Teams with one analyst who needs help triaging requests and monitoring metadata quality.
+- Engineering teams that own data pipelines but need better discovery and analysis support.
+- Consultants or fractional data teams supporting multiple clients.
+- Agentic coding workflows that need structured warehouse context before generating SQL or transformations.
+
+## What This Enables
+
+- Discover Snowflake databases, schemas, tables, views, columns, comments, tags, policies, grants, and freshness signals.
+- Analyze table and column description quality so teams can see where metadata gaps weaken discovery and analysis.
+- Generate reviewable Snowflake description updates from user-provided improvements.
+- Create explicit random sample tables for analysis workflows that need row-level examples.
+- Preserve long-running analysis context with local or cloud-backed memory, status, work queues, and progress updates.
+- Continuously monitor and report on data gaps, documentation issues, and future feature opportunities.
+- Attach compact Snowflake context to OpenAI SDK workflows without forking or monkey-patching the official SDK.
+
+## Core Capabilities
 
 - Discover Snowflake databases, schemas, tables, views, columns, comments, tags, policies, grants, and freshness signals.
 - Convert Snowflake metadata into concise agent-ready context blocks.
@@ -13,8 +46,9 @@ The package is intended to make Snowflake metadata easy to retrieve, compact, ca
 - Offer safe defaults for credential handling, query limits, caching, and governance-aware redaction.
 - Analyze table and column description quality so agents can identify metadata gaps that weaken SQL generation and analysis.
 - Create explicit Snowflake sample tables for analysis workflows that need row-level examples.
+- Maintain coherent long-running agent sessions with memory, status, work intake, and human-readable progress updates.
 
-See [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
+See [docs/SMB_ANALYTICS_WORKFLOWS.md](docs/SMB_ANALYTICS_WORKFLOWS.md) for the target SMB analytics workflows and [docs/ARCHITECTURE_TECH_SPEC.md](docs/ARCHITECTURE_TECH_SPEC.md) for the implementation plan and technical specification.
 
 ## Quick Start
 
@@ -33,6 +67,171 @@ Run the local verification suite:
 .venv/bin/python -m mypy src
 ```
 
+## Set Up This Extension
+
+### 1. Clone and install
+
+Clone the repository and install the package into a virtual environment:
+
+```bash
+git clone https://github.com/rarcher2011/snowflake-data-context.git
+cd snowflake-data-context
+
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e .
+```
+
+For local development and tests, install the development extra:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev]'
+```
+
+Optional extras are available for specific deployment and integration paths:
+
+```bash
+.venv/bin/python -m pip install -e '.[cloud]'
+.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
+.venv/bin/python -m pip install -e '.[aws]'
+```
+
+### 2. Configure Snowflake credentials
+
+Create Snowflake connections with the official Snowflake Python connector or your existing credential flow. Keep credentials in environment variables, a secret manager, or your normal Snowflake authentication setup; do not store them in this repo.
+
+```bash
+export SNOWFLAKE_ACCOUNT="your-account"
+export SNOWFLAKE_USER="your-user"
+export SNOWFLAKE_PASSWORD="your-password"
+export SNOWFLAKE_WAREHOUSE="your-warehouse"
+export SNOWFLAKE_DATABASE="ANALYTICS"
+export SNOWFLAKE_SCHEMA="PUBLIC"
+```
+
+Example connection setup:
+
+```python
+import os
+
+import snowflake.connector
+
+from openai_snowflake_agent_context import SnowflakeContextConfig, SnowflakeMetadataProvider
+
+connection = snowflake.connector.connect(
+    account=os.environ["SNOWFLAKE_ACCOUNT"],
+    user=os.environ["SNOWFLAKE_USER"],
+    password=os.environ["SNOWFLAKE_PASSWORD"],
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+    database=os.environ.get("SNOWFLAKE_DATABASE"),
+    schema=os.environ.get("SNOWFLAKE_SCHEMA"),
+)
+
+config = SnowflakeContextConfig(
+    account=os.environ["SNOWFLAKE_ACCOUNT"],
+    user=os.environ["SNOWFLAKE_USER"],
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+    database=os.environ.get("SNOWFLAKE_DATABASE"),
+    schema=os.environ.get("SNOWFLAKE_SCHEMA"),
+)
+
+provider = SnowflakeMetadataProvider(connection, config)
+```
+
+### 3. Run metadata and description analysis
+
+Use the provider-level methods when live Snowflake metadata retrieval is available, or use the lower-level helpers with existing table metadata objects:
+
+```python
+analysis = provider.analyze_schema_descriptions()
+
+for column in analysis.columns_needing_improvement:
+    print(column.table_identifier, column.column_name, column.result.recommendation)
+```
+
+For local tests or offline analysis, pass `TableContext` objects directly to `analyze_table_metadata_descriptions`.
+
+### 4. Review description updates before applying
+
+Description updates are planned first and applied only when explicitly requested:
+
+```python
+from openai_snowflake_agent_context import DescriptionUpdateRequest
+
+result = provider.update_descriptions(
+    [
+        DescriptionUpdateRequest(
+            table="ANALYTICS.PUBLIC.ORDERS",
+            table_description="Order fact table with one row per customer order.",
+            column_descriptions={
+                "CUSTOMER_ID": "Customer identifier used to join account activity.",
+            },
+        )
+    ],
+    apply=False,
+)
+
+for statement in result.plan.statements:
+    print(statement.sql)
+```
+
+Set `apply=True` only after a human has reviewed the generated Snowflake `COMMENT` statements.
+
+### 5. Configure the long-running harness
+
+Create an `agent_harness.toml` file at the repo root:
+
+```toml
+[repo]
+path = "."
+
+[paths]
+memory_dir = ".agent_harness/memory"
+status_file = ".agent_harness/status.json"
+work_file = ".agent_harness/work.md"
+session_context_file = ".agent_harness/session_context.md"
+```
+
+Create optional starter files:
+
+```bash
+mkdir -p .agent_harness/memory
+printf '%s\n' '- [ ] WORK-1: Run metadata discovery for the analytics schema' > .agent_harness/work.md
+printf '%s\n' '{"work_id": "WORK-1", "status": "pending"}' > .agent_harness/status.json
+```
+
+Start a session:
+
+```bash
+.venv/bin/python scripts/start_agent_harness.py
+```
+
+The harness writes `.agent_harness/session_context.md`, which future agents can read before continuing long-running analysis.
+
+### 6. Serve ChatGPT Actions locally
+
+Install the optional server dependencies:
+
+```bash
+.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
+```
+
+Create a small FastAPI app:
+
+```python
+from openai_snowflake_agent_context.chatgpt_plugin import create_app
+
+app = create_app("https://your-public-action-host.example.com")
+```
+
+Run it with Uvicorn:
+
+```bash
+.venv/bin/python -m uvicorn --factory openai_snowflake_agent_context.chatgpt_plugin:create_app
+```
+
+For production ChatGPT Actions, deploy behind a public HTTPS URL and provide the generated `GET /openapi.json` schema.
+
 ## Core Workflows
 
 Use the SDK extension in three main workflows:
@@ -40,10 +239,24 @@ Use the SDK extension in three main workflows:
 1. Analyze Snowflake metadata descriptions to find weak or missing documentation.
 2. Generate reviewed Snowflake `COMMENT` statements from user-provided improvements.
 3. Preserve long-running agent context with local or cloud-backed harness state.
+4. Create sampled tables for deeper analysis when metadata alone is not enough.
+5. Monitor unresolved data gaps, issues, and future feature requests over time.
+
+The long-term target is an agent-assisted analytics loop: discover data, identify gaps, recommend analyst or engineering work, carry context forward, and provide human-readable updates until the work is resolved.
+
+## Target Roadmap
+
+- Add typed discovery reports for Snowflake schemas and business domains.
+- Add first-class data gap, data issue, recommendation, and transformation candidate models.
+- Extend the harness status format to track unresolved data gaps and active analysis goals.
+- Add monitoring snapshots that compare current metadata health with previous runs.
+- Expose discovery reports and monitoring summaries through ChatGPT Actions and deployable service endpoints.
 
 ## Long-Running Agent Harness
 
 This repository includes a file-based startup harness for long-running coding agents and analysis sessions. It recovers the latest memory file, status JSON, and configured work queue, then writes a compact session context file for the next agent context window.
+
+For SMB analytics work, the harness is the continuity layer. It helps agents remember what was already investigated, what remains incomplete, which data gaps were found, whether a sampled table should be used, and what progress should be reported back to humans. This makes the repo useful for analysis that runs longer than one chat, one ticket, or one analyst work session.
 
 See [docs/LONG_RUNNING_AGENT_HARNESS.md](docs/LONG_RUNNING_AGENT_HARNESS.md) for usage and file formats.
 

@@ -1,6 +1,6 @@
 # ChatGPT Actions Plugin
 
-This repository includes a small ChatGPT Actions/OpenAPI adapter for executing selected SDK extension methods over HTTP.
+This repository includes a small ChatGPT Actions/OpenAPI adapter for executing selected SDK extension methods over HTTP. The current adapter exposes low-level metadata, sampling, and progress helpers. The target SMB analytics roadmap should add higher-level actions for discovery reports, data gap summaries, transformation recommendations, and monitoring snapshots.
 
 ## Exposed Methods
 
@@ -74,3 +74,20 @@ Table sampling:
 ```
 
 The sampling response includes `sampled_table`, which can be copied into harness status so future agents reference the sampled table.
+
+## Target SMB Analytics Actions
+
+Future ChatGPT Actions should expose the workflows described in `docs/SMB_ANALYTICS_WORKFLOWS.md`:
+
+- `POST /analytics/discovery-report`
+  - Builds an SMB-friendly report from Snowflake metadata, description analysis, and optional sampling status.
+- `POST /analytics/data-gaps`
+  - Returns prioritized data gaps, issues, stakeholder questions, and recommended next actions.
+- `POST /analytics/transformation-candidates`
+  - Recommends reviewable transformations such as staging models, reporting views, cleanup rules, and relationship checks.
+- `POST /analytics/monitoring-snapshot`
+  - Creates a point-in-time metadata health snapshot for recurring monitoring.
+- `POST /analytics/monitoring-diff`
+  - Compares current and previous snapshots to identify new, persistent, and resolved gaps.
+
+These are roadmap endpoints. They should be added only after the underlying SDK methods and tests exist.

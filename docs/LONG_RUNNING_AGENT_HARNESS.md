@@ -2,6 +2,8 @@
 
 The long-running agent harness gives coding agents a repeatable startup routine for recovering context across sessions. It is intentionally file-based so it works with local agents, CI jobs, and hosted coding assistants without requiring a service.
 
+For the broader SMB analytics goal, the harness is the continuity layer for work that cannot fit into one prompt or one analyst session. It should eventually preserve discovery findings, unresolved data gaps, transformation candidates, sampled tables, monitoring snapshots, and human-readable progress updates.
+
 ## Goals
 
 - Recover the latest memory from prior agent runs.
@@ -9,6 +11,8 @@ The long-running agent harness gives coding agents a repeatable startup routine 
 - Locate the configured work queue.
 - Detect incomplete work and inconsistent state.
 - Write a compact context bundle for the next agent context window.
+- Preserve active analysis goals and unresolved analytics findings.
+- Help future runs distinguish new, persistent, and resolved data gaps.
 
 ## Files
 
@@ -97,6 +101,41 @@ If a Snowflake sampling run created a destination sample table, include that tab
 ```
 
 The harness also recognizes `sampled_table_identifier`, `destination_table`, and `destination_location` for compatibility with sampling method result payloads.
+
+Future status files should also support SMB analytics operating state:
+
+```json
+{
+  "work_id": "WORK-12",
+  "status": "in_progress",
+  "analysis_goal": "Assess sales reporting readiness",
+  "active_domain": "sales",
+  "unresolved_data_gaps": [
+    {
+      "id": "GAP-1",
+      "severity": "high",
+      "category": "missing_description",
+      "table": "ANALYTICS.PUBLIC.ORDERS",
+      "recommendation": "Add table grain and business usage notes."
+    }
+  ],
+  "transformation_candidates": [
+    {
+      "id": "TX-1",
+      "table": "ANALYTICS.PUBLIC.ORDERS",
+      "recommendation": "Create a reviewed sales order reporting view."
+    }
+  ],
+  "monitoring_snapshot": {
+    "generated_at": "2026-07-25T12:00:00Z",
+    "new_gaps": 2,
+    "persistent_gaps": 5,
+    "resolved_gaps": 1
+  }
+}
+```
+
+These fields are target-state documentation. They should guide future implementation without implying the current harness already validates every shape.
 
 ## Work Queue Format
 
@@ -206,3 +245,6 @@ On startup, an agent should:
 3. Compare the current user request with the recovered next work item.
 4. Continue incomplete work when it matches the current request.
 5. Ask for clarification when memory, status, and work queue disagree in a task-critical way.
+6. Prefer existing sampled tables when status declares one.
+7. Carry forward unresolved data gaps and transformation candidates rather than rediscovering them from scratch.
+8. Report progress in human-readable language when findings change, work completes, or new blockers appear.
