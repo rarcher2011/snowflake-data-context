@@ -67,6 +67,171 @@ Run the local verification suite:
 .venv/bin/python -m mypy src
 ```
 
+## Set Up This Extension
+
+### 1. Clone and install
+
+Clone the repository and install the package into a virtual environment:
+
+```bash
+git clone https://github.com/rarcher2011/snowflake-data-context.git
+cd snowflake-data-context
+
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e .
+```
+
+For local development and tests, install the development extra:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev]'
+```
+
+Optional extras are available for specific deployment and integration paths:
+
+```bash
+.venv/bin/python -m pip install -e '.[cloud]'
+.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
+.venv/bin/python -m pip install -e '.[aws]'
+```
+
+### 2. Configure Snowflake credentials
+
+Create Snowflake connections with the official Snowflake Python connector or your existing credential flow. Keep credentials in environment variables, a secret manager, or your normal Snowflake authentication setup; do not store them in this repo.
+
+```bash
+export SNOWFLAKE_ACCOUNT="your-account"
+export SNOWFLAKE_USER="your-user"
+export SNOWFLAKE_PASSWORD="your-password"
+export SNOWFLAKE_WAREHOUSE="your-warehouse"
+export SNOWFLAKE_DATABASE="ANALYTICS"
+export SNOWFLAKE_SCHEMA="PUBLIC"
+```
+
+Example connection setup:
+
+```python
+import os
+
+import snowflake.connector
+
+from openai_snowflake_agent_context import SnowflakeContextConfig, SnowflakeMetadataProvider
+
+connection = snowflake.connector.connect(
+    account=os.environ["SNOWFLAKE_ACCOUNT"],
+    user=os.environ["SNOWFLAKE_USER"],
+    password=os.environ["SNOWFLAKE_PASSWORD"],
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+    database=os.environ.get("SNOWFLAKE_DATABASE"),
+    schema=os.environ.get("SNOWFLAKE_SCHEMA"),
+)
+
+config = SnowflakeContextConfig(
+    account=os.environ["SNOWFLAKE_ACCOUNT"],
+    user=os.environ["SNOWFLAKE_USER"],
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+    database=os.environ.get("SNOWFLAKE_DATABASE"),
+    schema=os.environ.get("SNOWFLAKE_SCHEMA"),
+)
+
+provider = SnowflakeMetadataProvider(connection, config)
+```
+
+### 3. Run metadata and description analysis
+
+Use the provider-level methods when live Snowflake metadata retrieval is available, or use the lower-level helpers with existing table metadata objects:
+
+```python
+analysis = provider.analyze_schema_descriptions()
+
+for column in analysis.columns_needing_improvement:
+    print(column.table_identifier, column.column_name, column.result.recommendation)
+```
+
+For local tests or offline analysis, pass `TableContext` objects directly to `analyze_table_metadata_descriptions`.
+
+### 4. Review description updates before applying
+
+Description updates are planned first and applied only when explicitly requested:
+
+```python
+from openai_snowflake_agent_context import DescriptionUpdateRequest
+
+result = provider.update_descriptions(
+    [
+        DescriptionUpdateRequest(
+            table="ANALYTICS.PUBLIC.ORDERS",
+            table_description="Order fact table with one row per customer order.",
+            column_descriptions={
+                "CUSTOMER_ID": "Customer identifier used to join account activity.",
+            },
+        )
+    ],
+    apply=False,
+)
+
+for statement in result.plan.statements:
+    print(statement.sql)
+```
+
+Set `apply=True` only after a human has reviewed the generated Snowflake `COMMENT` statements.
+
+### 5. Configure the long-running harness
+
+Create an `agent_harness.toml` file at the repo root:
+
+```toml
+[repo]
+path = "."
+
+[paths]
+memory_dir = ".agent_harness/memory"
+status_file = ".agent_harness/status.json"
+work_file = ".agent_harness/work.md"
+session_context_file = ".agent_harness/session_context.md"
+```
+
+Create optional starter files:
+
+```bash
+mkdir -p .agent_harness/memory
+printf '%s\n' '- [ ] WORK-1: Run metadata discovery for the analytics schema' > .agent_harness/work.md
+printf '%s\n' '{"work_id": "WORK-1", "status": "pending"}' > .agent_harness/status.json
+```
+
+Start a session:
+
+```bash
+.venv/bin/python scripts/start_agent_harness.py
+```
+
+The harness writes `.agent_harness/session_context.md`, which future agents can read before continuing long-running analysis.
+
+### 6. Serve ChatGPT Actions locally
+
+Install the optional server dependencies:
+
+```bash
+.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
+```
+
+Create a small FastAPI app:
+
+```python
+from openai_snowflake_agent_context.chatgpt_plugin import create_app
+
+app = create_app("https://your-public-action-host.example.com")
+```
+
+Run it with Uvicorn:
+
+```bash
+.venv/bin/python -m uvicorn --factory openai_snowflake_agent_context.chatgpt_plugin:create_app
+```
+
+For production ChatGPT Actions, deploy behind a public HTTPS URL and provide the generated `GET /openapi.json` schema.
+
 ## Core Workflows
 
 Use the SDK extension in three main workflows:
