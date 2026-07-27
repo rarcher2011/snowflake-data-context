@@ -99,6 +99,11 @@ Optional extras are available for specific deployment and integration paths:
 ### 2. Configure Snowflake credentials
 
 Create Snowflake connections with the official Snowflake Python connector or your existing credential flow. Keep credentials in environment variables, a secret manager, or your normal Snowflake authentication setup; do not store them in this repo.
+## Snowflake Connection Setup
+
+Use Snowflake key-pair authentication for this extension. Do not store Snowflake passwords in this repository or pass a `password` value into the package helpers.
+
+Set the connection scope and private key path with environment variables or your normal secret manager:
 
 ```bash
 export SNOWFLAKE_ACCOUNT="your-account"
@@ -110,21 +115,22 @@ export SNOWFLAKE_SCHEMA="PUBLIC"
 ```
 
 Example connection setup:
+export SNOWFLAKE_WAREHOUSE="your-warehouse"
+export SNOWFLAKE_DATABASE="ANALYTICS"
+export SNOWFLAKE_SCHEMA="PUBLIC"
+export SNOWFLAKE_PRIVATE_KEY_PATH="$HOME/.ssh/snowflake_rsa_key.p8"
+export SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="optional-passphrase"
+```
+
+Create a Snowflake connector connection with the private-key helper:
 
 ```python
 import os
 
-import snowflake.connector
-
-from openai_snowflake_agent_context import SnowflakeContextConfig, SnowflakeMetadataProvider
-
-connection = snowflake.connector.connect(
-    account=os.environ["SNOWFLAKE_ACCOUNT"],
-    user=os.environ["SNOWFLAKE_USER"],
-    password=os.environ["SNOWFLAKE_PASSWORD"],
-    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-    database=os.environ.get("SNOWFLAKE_DATABASE"),
-    schema=os.environ.get("SNOWFLAKE_SCHEMA"),
+from openai_snowflake_agent_context import (
+    SnowflakeContextConfig,
+    SnowflakeMetadataProvider,
+    connect_with_private_key,
 )
 
 config = SnowflakeContextConfig(
@@ -231,6 +237,17 @@ Run it with Uvicorn:
 ```
 
 For production ChatGPT Actions, deploy behind a public HTTPS URL and provide the generated `GET /openapi.json` schema.
+    private_key_path=os.environ["SNOWFLAKE_PRIVATE_KEY_PATH"],
+)
+
+connection = connect_with_private_key(
+    config,
+    private_key_passphrase=os.environ.get("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"),
+)
+provider = SnowflakeMetadataProvider(connection, config)
+```
+
+If your application already manages Snowflake connections, it can keep doing that. The provider only requires a connection object with `cursor()`. The included helper is for teams that want a standard private-key setup path.
 
 ## Core Workflows
 

@@ -92,6 +92,9 @@ prompt_block = format_table_context(context, token_budget=4000)
 `SnowflakeMetadataProvider`
 : Coordinates metadata retrieval. Accepts a Snowflake connector connection and a `SnowflakeContextConfig`.
 
+`PrivateKeyConnectionHelper`
+: Loads a Snowflake RSA private key, builds connector keyword arguments, and creates Snowflake connections without accepting or storing user passwords.
+
 `SnowflakeMetadataRepository`
 : Executes narrowly scoped metadata SQL. This should be kept separate from formatting and ranking logic.
 
@@ -133,7 +136,7 @@ prompt_block = format_table_context(context, token_budget=4000)
 
 ### 5.2 Data Flow
 
-1. Caller creates a Snowflake connection using their normal credential flow.
+1. Caller creates a Snowflake connection using key-pair authentication or their normal credential flow.
 2. Caller configures metadata scope and safety settings.
 3. Provider retrieves Snowflake metadata from `INFORMATION_SCHEMA`, `ACCOUNT_USAGE`, `SHOW` commands, or `DESCRIBE` commands depending on role permissions and requested detail.
 4. Repository returns raw rows.
@@ -242,7 +245,8 @@ This keeps compatibility high as the official SDK evolves.
 ## 9. Safety and Governance Requirements
 
 - Never bypass Snowflake role permissions.
-- Never log credentials or full connection strings.
+- Never log credentials, private key material, passphrases, or full connection strings.
+- Prefer Snowflake key-pair authentication over user-password authentication.
 - Default to metadata only, not row samples.
 - Require explicit opt-in for sample values.
 - Require an explicit destination table for random sampling and surface that sampled table in harness status/context if present.
@@ -258,6 +262,7 @@ This keeps compatibility high as the official SDK evolves.
 `SnowflakeContextConfig` should support:
 
 - `account`, `user`, `role`, `warehouse`, `database`, `schema`
+- `private_key_path`
 - `include_tables`, `exclude_tables`
 - `include_views`
 - `include_governance`

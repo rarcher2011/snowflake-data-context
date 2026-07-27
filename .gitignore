@@ -13,3 +13,5 @@ build/
 .env.*
 .DS_Store
 .agent_harness/session_context.md
+*.p8
+*.pub

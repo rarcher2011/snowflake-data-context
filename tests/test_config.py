@@ -15,6 +15,7 @@ def test_config_defaults_are_safe_for_metadata_only_context() -> None:
     assert config.role is None
     assert config.database is None
     assert config.schema is None
+    assert config.private_key_path is None
     assert config.max_tables == 25
     assert config.max_columns_per_table == 80
     assert config.include_governance is True
@@ -31,4 +32,3 @@ def test_config_is_immutable_after_creation() -> None:
 
     with pytest.raises(FrozenInstanceError):
         config.token_budget = 16_000  # type: ignore[misc]
-
