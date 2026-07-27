@@ -26,6 +26,76 @@ class FakeSamplingConnection:
         return self.cursor_instance
 
 
+class FakeMetadataCursor:
+    def __init__(self) -> None:
+        self.executed_sql: list[str] = []
+        self._rows: list[object] = []
+
+    def execute(self, sql: str) -> object:
+        self.executed_sql.append(sql)
+        if "INFORMATION_SCHEMA.TABLES" in sql:
+            self._rows = [
+                (
+                    "ANALYTICS",
+                    "PUBLIC",
+                    "ORDERS",
+                    "BASE TABLE",
+                    "Order fact table with one row per customer order.",
+                ),
+                (
+                    "ANALYTICS",
+                    "PUBLIC",
+                    "CUSTOMERS",
+                    "BASE TABLE",
+                    None,
+                ),
+            ]
+        elif "INFORMATION_SCHEMA.COLUMNS" in sql:
+            self._rows = [
+                (
+                    "ANALYTICS",
+                    "PUBLIC",
+                    "ORDERS",
+                    "ORDER_ID",
+                    "NUMBER",
+                    "Unique identifier for an order from the commerce system.",
+                    1,
+                ),
+                (
+                    "ANALYTICS",
+                    "PUBLIC",
+                    "ORDERS",
+                    "CUSTOMER_ID",
+                    "NUMBER",
+                    None,
+                    2,
+                ),
+                (
+                    "ANALYTICS",
+                    "PUBLIC",
+                    "CUSTOMERS",
+                    "CUSTOMER_ID",
+                    "NUMBER",
+                    "Customer identifier from the CRM source system.",
+                    1,
+                ),
+            ]
+        else:
+            self._rows = []
+        return self
+
+    def fetchall(self) -> list[object]:
+        return self._rows
+
+
+class FakeMetadataConnection:
+    def __init__(self) -> None:
+        self.cursor_instance = FakeMetadataCursor()
+
+    def cursor(self) -> FakeMetadataCursor:
+        return self.cursor_instance
+
+
 class FakeMetadataProvider(SnowflakeMetadataProvider):
     def __init__(self) -> None:
         super().__init__(
@@ -58,18 +128,66 @@ class FakeMetadataProvider(SnowflakeMetadataProvider):
         ]
 
 
-def test_describe_tables_declares_unimplemented_provider_contract() -> None:
+def test_describe_tables_fetches_information_schema_metadata() -> None:
+    connection = FakeMetadataConnection()
     provider = SnowflakeMetadataProvider(
-        FakeConnection(),
+        connection,
         SnowflakeContextConfig(
             account="test-account",
             user="analyst",
             warehouse="agent_wh",
+            database="ANALYTICS",
+            schema="PUBLIC",
         ),
     )
 
-    with pytest.raises(NotImplementedError, match="not implemented"):
-        provider.describe_tables(["ANALYTICS.PUBLIC.ORDERS"])
+    tables = provider.describe_tables()
+
+    assert [table.name for table in tables] == ["ORDERS", "CUSTOMERS"]
+    assert tables[0].description == "Order fact table with one row per customer order."
+    assert tables[0].columns == (
+        "ORDER_ID NUMBER -- Unique identifier for an order from the commerce system.",
+        "CUSTOMER_ID NUMBER",
+    )
+    assert "ANALYTICS.PUBLIC.ORDERS" in tables[0].context_markdown
+    assert '"ANALYTICS".INFORMATION_SCHEMA.TABLES' in connection.cursor_instance.executed_sql[0]
+    assert "TABLE_SCHEMA = 'PUBLIC'" in connection.cursor_instance.executed_sql[0]
+
+
+def test_describe_tables_filters_explicit_table_names() -> None:
+    provider = SnowflakeMetadataProvider(
+        FakeMetadataConnection(),
+        SnowflakeContextConfig(
+            account="test-account",
+            user="analyst",
+            warehouse="agent_wh",
+            database="ANALYTICS",
+            schema="PUBLIC",
+        ),
+    )
+
+    tables = provider.describe_tables(["ANALYTICS.PUBLIC.CUSTOMERS"])
+
+    assert [table.name for table in tables] == ["CUSTOMERS"]
+
+
+def test_analyze_schema_descriptions_uses_live_describe_tables() -> None:
+    provider = SnowflakeMetadataProvider(
+        FakeMetadataConnection(),
+        SnowflakeContextConfig(
+            account="test-account",
+            user="analyst",
+            warehouse="agent_wh",
+            database="ANALYTICS",
+            schema="PUBLIC",
+        ),
+    )
+
+    analysis = provider.analyze_schema_descriptions(["ORDERS"])
+
+    assert analysis.total_tables == 1
+    assert analysis.total_columns == 2
+    assert [column.column_name for column in analysis.columns_needing_improvement] == ["CUSTOMER_ID"]
 
 
 def test_table_context_holds_agent_ready_markdown() -> None:
