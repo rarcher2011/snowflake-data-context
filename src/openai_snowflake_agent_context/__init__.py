@@ -9,14 +9,22 @@ __all__ = [
     "SnowflakeMetadataProvider",
     "SampledTableResult",
     "analyze_table_metadata_descriptions",
+    "build_private_key_connection_kwargs",
     "build_sample_table_sql",
     "build_openapi_schema",
+    "connect_with_private_key",
     "create_app",
+    "load_private_key_der",
     "sample_table",
 ]
 
 from .chatgpt_plugin import build_openapi_schema, create_app
 from .config import SnowflakeContextConfig
+from .connection import (
+    build_private_key_connection_kwargs,
+    connect_with_private_key,
+    load_private_key_der,
+)
 from .description_updates import (
     DescriptionUpdateRequest,
     SnowflakeDescriptionUpdatePlan,
