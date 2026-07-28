@@ -175,7 +175,7 @@ def _build_columns_query(config: SnowflakeContextConfig) -> str:
 
 def _information_schema_source(config: SnowflakeContextConfig, view_name: str) -> str:
     if config.database:
-        return f"{_quote_identifier(config.database)}.INFORMATION_SCHEMA.{view_name}"
+        return f"{config.database}.INFORMATION_SCHEMA.{view_name}"
     return f"INFORMATION_SCHEMA.{view_name}"
 
 
@@ -326,10 +326,6 @@ def _optional_string(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _quote_identifier(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _quote_sql_string(value: str) -> str:
