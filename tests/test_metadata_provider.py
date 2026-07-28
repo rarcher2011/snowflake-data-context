@@ -150,7 +150,7 @@ def test_describe_tables_fetches_information_schema_metadata() -> None:
         "CUSTOMER_ID NUMBER",
     )
     assert "ANALYTICS.PUBLIC.ORDERS" in tables[0].context_markdown
-    assert '"ANALYTICS".INFORMATION_SCHEMA.TABLES' in connection.cursor_instance.executed_sql[0]
+    assert "ANALYTICS.INFORMATION_SCHEMA.TABLES" in connection.cursor_instance.executed_sql[0]
     assert "TABLE_SCHEMA = 'PUBLIC'" in connection.cursor_instance.executed_sql[0]
 
 
