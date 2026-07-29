@@ -52,48 +52,59 @@ See [docs/SMB_ANALYTICS_WORKFLOWS.md](docs/SMB_ANALYTICS_WORKFLOWS.md) for the t
 
 ## Quick Start
 
-Install the package in editable mode while the SDK extension is under active development:
+This project uses [uv](https://docs.astral.sh/uv/) for Python version management, dependency syncing, virtual environments, and command execution.
+
+Install uv if it is not already available:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Sync the development environment:
+
+```bash
+uv sync --extra dev
+```
+
+If your runner cannot write to the default uv cache, use a project-local cache:
+
+```bash
+UV_CACHE_DIR=.uv-cache uv sync --extra dev
 ```
 
 Run the local verification suite:
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check .
-.venv/bin/python -m mypy src
+uv run python -m pytest -q
+uv run ruff check .
+uv run mypy src
 ```
 
 ## Set Up This Extension
 
 ### 1. Clone and install
 
-Clone the repository and install the package into a virtual environment:
+Clone the repository and sync the package into uv-managed project environment:
 
 ```bash
 git clone https://github.com/rarcher2011/snowflake-data-context.git
 cd snowflake-data-context
 
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
+uv sync
 ```
 
 For local development and tests, install the development extra:
 
 ```bash
-.venv/bin/python -m pip install -e '.[dev]'
+uv sync --extra dev
 ```
 
 Optional extras are available for specific deployment and integration paths:
 
 ```bash
-.venv/bin/python -m pip install -e '.[cloud]'
-.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
-.venv/bin/python -m pip install -e '.[aws]'
+uv sync --extra cloud
+uv sync --extra chatgpt-plugin
+uv sync --extra aws
 ```
 
 ### 2. Configure Snowflake credentials
@@ -222,7 +233,7 @@ printf '%s\n' '{"work_id": "WORK-1", "status": "pending"}' > .agent_harness/stat
 Start a session:
 
 ```bash
-.venv/bin/python scripts/start_agent_harness.py
+uv run scripts/start_agent_harness.py
 ```
 
 The harness writes `.agent_harness/session_context.md`, which future agents can read before continuing long-running analysis.
@@ -232,7 +243,7 @@ The harness writes `.agent_harness/session_context.md`, which future agents can 
 Install the optional server dependencies:
 
 ```bash
-.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
+uv sync --extra chatgpt-plugin
 ```
 
 Create a small FastAPI app:
@@ -246,7 +257,7 @@ app = create_app("https://your-public-action-host.example.com")
 Run it with Uvicorn:
 
 ```bash
-.venv/bin/python -m uvicorn --factory openai_snowflake_agent_context.chatgpt_plugin:create_app
+uv run --extra chatgpt-plugin uvicorn --factory openai_snowflake_agent_context.chatgpt_plugin:create_app
 ```
 
 For production ChatGPT Actions, deploy behind a public HTTPS URL and provide the generated `GET /openapi.json` schema.

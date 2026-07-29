@@ -31,10 +31,11 @@ The current suite covers the repository scaffold, public API, long-running harne
 Current verification commands:
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check .
-.venv/bin/python -m mypy src
-.venv/bin/python scripts/start_agent_harness.py --json
+uv sync --extra dev
+uv run python -m pytest -q
+uv run ruff check .
+uv run mypy src
+uv run scripts/start_agent_harness.py --json
 ```
 
 ## Completed TDD Slices
@@ -349,10 +350,10 @@ Fixture data must not contain real credentials, customer data, or private wareho
 ## Suggested Commands
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m pytest -q -rx
-.venv/bin/python -m pytest tests/test_agent_harness.py -q
-.venv/bin/python -m pytest tests/test_metadata_provider.py -q
-.venv/bin/python -m ruff check .
-.venv/bin/python -m mypy src
+uv run python -m pytest -q
+uv run python -m pytest -q -rx
+uv run python -m pytest tests/test_agent_harness.py -q
+uv run python -m pytest tests/test_metadata_provider.py -q
+uv run ruff check .
+uv run mypy src
 ```
