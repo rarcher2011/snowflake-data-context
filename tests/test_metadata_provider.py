@@ -151,7 +151,7 @@ def test_describe_tables_fetches_information_schema_metadata() -> None:
     )
     assert "ANALYTICS.PUBLIC.ORDERS" in tables[0].context_markdown
     assert "ANALYTICS.INFORMATION_SCHEMA.TABLES" in connection.cursor_instance.executed_sql[0]
-    assert "TABLE_SCHEMA = 'PUBLIC'" in connection.cursor_instance.executed_sql[0]
+    assert "UPPER(TABLE_SCHEMA) = UPPER('PUBLIC')" in connection.cursor_instance.executed_sql[0]
 
 
 def test_describe_tables_filters_explicit_table_names() -> None:
@@ -169,6 +169,25 @@ def test_describe_tables_filters_explicit_table_names() -> None:
     tables = provider.describe_tables(["ANALYTICS.PUBLIC.CUSTOMERS"])
 
     assert [table.name for table in tables] == ["CUSTOMERS"]
+
+
+def test_describe_tables_compares_configured_schema_case_insensitively() -> None:
+    connection = FakeMetadataConnection()
+    provider = SnowflakeMetadataProvider(
+        connection,
+        SnowflakeContextConfig(
+            account="test-account",
+            user="analyst",
+            warehouse="agent_wh",
+            database="ANALYTICS",
+            schema="public",
+        ),
+    )
+
+    provider.describe_tables()
+
+    assert "UPPER(TABLE_SCHEMA) = UPPER('public')" in connection.cursor_instance.executed_sql[0]
+    assert "UPPER(TABLE_SCHEMA) = UPPER('public')" in connection.cursor_instance.executed_sql[1]
 
 
 def test_analyze_schema_descriptions_uses_live_describe_tables() -> None:
