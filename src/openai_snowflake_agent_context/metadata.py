@@ -149,7 +149,7 @@ def _build_tables_query(config: SnowflakeContextConfig) -> str:
     source = _information_schema_source(config, "TABLES")
     predicates = ["TABLE_TYPE IN ('BASE TABLE', 'VIEW')"]
     if config.schema:
-        predicates.append(f"TABLE_SCHEMA = {_quote_sql_string(config.schema)}")
+        predicates.append(f"UPPER(TABLE_SCHEMA) = UPPER({_quote_sql_string(config.schema)})")
     return (
         "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, COMMENT\n"
         f"FROM {source}\n"
@@ -162,7 +162,7 @@ def _build_columns_query(config: SnowflakeContextConfig) -> str:
     source = _information_schema_source(config, "COLUMNS")
     predicates: list[str] = []
     if config.schema:
-        predicates.append(f"TABLE_SCHEMA = {_quote_sql_string(config.schema)}")
+        predicates.append(f"UPPER(TABLE_SCHEMA) = UPPER({_quote_sql_string(config.schema)})")
     where_clause = f"\nWHERE {' AND '.join(predicates)}" if predicates else ""
     return (
         "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, COMMENT, "
