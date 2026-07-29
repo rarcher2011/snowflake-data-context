@@ -139,27 +139,28 @@ The harness exists to preserve continuity across long-running analysis and repea
 
 ## Testing
 
-Use the local virtual environment if it exists:
+Use uv for local environments, dependency installation, and command execution:
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check .
-.venv/bin/python -m mypy src
-```
-
-If no virtual environment exists, create one and install dev dependencies:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-.venv/bin/python -m pytest -q
+uv sync --extra dev
+uv run python -m pytest -q
+uv run ruff check .
+uv run mypy src
 ```
 
 For targeted work:
 
 ```bash
-.venv/bin/python -m pytest tests/test_metadata_provider.py -q
+uv run python -m pytest tests/test_metadata_provider.py -q
 ```
+
+Avoid adding pyenv or direct pip setup instructions. If uv is not installed, use the official standalone installer:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+If the sandbox cannot write to the default uv cache, prefix commands with `UV_CACHE_DIR=.uv-cache`.
 
 If pytest fails during startup because it cannot create a capture temp directory, first check that `pyproject.toml` still configures sys capture. If needed for a local run, set `TMPDIR=/private/tmp`.
 

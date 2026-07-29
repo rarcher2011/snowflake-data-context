@@ -11,13 +11,13 @@ The repository includes a deployment script for hosting the ChatGPT Actions adap
 ## Install Optional Dependencies
 
 ```bash
-.venv/bin/python -m pip install -e '.[chatgpt-plugin,aws]'
+uv sync --extra chatgpt-plugin --extra aws
 ```
 
 ## Dry Run
 
 ```bash
-.venv/bin/python scripts/deploy_aws.py \
+uv run --extra chatgpt-plugin --extra aws scripts/deploy_aws.py \
   --function-name snowflake-agent-context-actions \
   --role-arn arn:aws:iam::123456789012:role/lambda-actions-role \
   --region us-east-1 \
@@ -28,7 +28,7 @@ The repository includes a deployment script for hosting the ChatGPT Actions adap
 ## Deploy
 
 ```bash
-.venv/bin/python scripts/deploy_aws.py \
+uv run --extra chatgpt-plugin --extra aws scripts/deploy_aws.py \
   --function-name snowflake-agent-context-actions \
   --role-arn arn:aws:iam::123456789012:role/lambda-actions-role \
   --region us-east-1 \
@@ -46,4 +46,3 @@ openai_snowflake_agent_context.aws_lambda.handler
 ```
 
 The handler serves the ChatGPT Actions endpoints documented in [CHATGPT_PLUGIN_ACTIONS.md](CHATGPT_PLUGIN_ACTIONS.md).
-

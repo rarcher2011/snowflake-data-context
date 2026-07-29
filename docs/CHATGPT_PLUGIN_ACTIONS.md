@@ -21,7 +21,7 @@ This repository includes a small ChatGPT Actions/OpenAPI adapter for executing s
 ## Install Server Dependencies
 
 ```bash
-.venv/bin/python -m pip install -e '.[chatgpt-plugin]'
+uv sync --extra chatgpt-plugin
 ```
 
 ## Serve Locally
@@ -35,7 +35,7 @@ app = create_app("https://your-public-action-host.example.com")
 Run with Uvicorn:
 
 ```bash
-.venv/bin/python -m uvicorn openai_snowflake_agent_context.chatgpt_plugin:create_app
+uv run --extra chatgpt-plugin uvicorn --factory openai_snowflake_agent_context.chatgpt_plugin:create_app
 ```
 
 For a production ChatGPT Action, host the app at a public HTTPS URL and provide `GET /openapi.json` as the action schema.

@@ -154,7 +154,7 @@ JSON work files are also supported when configured with a `.json` suffix.
 Run the startup script:
 
 ```bash
-.venv/bin/python scripts/start_agent_harness.py
+uv run scripts/start_agent_harness.py
 ```
 
 Or use the installed console entrypoint:
@@ -166,7 +166,7 @@ snowflake-agent-harness-start
 For machine-readable output:
 
 ```bash
-.venv/bin/python scripts/start_agent_harness.py --json
+uv run scripts/start_agent_harness.py --json
 ```
 
 ## Cloud Readers
@@ -174,7 +174,7 @@ For machine-readable output:
 The harness keeps cloud SDK dependencies optional. Install them only for runners that need remote memory or config:
 
 ```bash
-.venv/bin/python -m pip install -e '.[cloud]'
+uv sync --extra cloud
 ```
 
 The core harness accepts reader adapters:
