@@ -113,6 +113,72 @@ class SchemaDescriptionAnalysis:
             return 1.0
         return self.described_columns / self.total_columns
 
+    def to_context_markdown(self, *, include_all_columns: bool = True) -> str:
+        """Render scoring and metadata as human-readable context for LLMs."""
+
+        lines = [
+            "# Snowflake Metadata Description Analysis",
+            "",
+            "## Summary",
+            f"- Tables analyzed: {self.total_tables}",
+            f"- Columns analyzed: {self.total_columns}",
+            f"- Described columns: {self.described_columns}",
+            f"- Description coverage: {self.description_coverage:.1%}",
+            f"- Missing column descriptions: {self.missing_column_descriptions}",
+            f"- Weak column descriptions: {self.weak_column_descriptions}",
+            f"- Adequate column descriptions: {self.adequate_column_descriptions}",
+            f"- Strong column descriptions: {self.strong_column_descriptions}",
+            "",
+            "## Priority Improvements",
+        ]
+
+        if not self.columns_needing_improvement:
+            lines.append("- No missing or weak column descriptions were found.")
+        else:
+            for column in self.columns_needing_improvement:
+                lines.extend(_render_column_summary(column))
+
+        lines.extend(["", "## Table Details"])
+        if not self.tables:
+            lines.append("- No tables were analyzed.")
+            return "\n".join(lines)
+
+        for table in self.tables:
+            lines.extend(
+                [
+                    f"### {table.table_identifier}",
+                    f"- Table description: {table.table_description or 'Missing'}",
+                    (
+                        "- Table description score: "
+                        f"{table.table_result.quality} ({table.table_result.score:.2f})"
+                    ),
+                ]
+            )
+            if table.table_result.issues:
+                lines.append(f"- Table description issues: {'; '.join(table.table_result.issues)}")
+            if table.table_result.recommendation:
+                lines.append(f"- Table recommendation: {table.table_result.recommendation}")
+
+            included_columns = (
+                table.columns
+                if include_all_columns
+                else table.columns_needing_improvement
+            )
+            if not included_columns:
+                lines.append("- Columns: no columns included.")
+                continue
+
+            lines.append("- Columns:")
+            for column in included_columns:
+                lines.extend(_render_column_detail(column))
+
+        return "\n".join(lines)
+
+    def print_context(self, *, include_all_columns: bool = True) -> None:
+        """Print scoring and metadata context for interactive agent workflows."""
+
+        print(self.to_context_markdown(include_all_columns=include_all_columns))
+
 
 def analyze_table_metadata_descriptions(
     tables: Sequence[TableContext],
@@ -137,6 +203,36 @@ def analyze_table_metadata_descriptions(
         adequate_column_descriptions=adequate,
         strong_column_descriptions=strong,
     )
+
+
+def _render_column_summary(column: ColumnDescriptionAnalysis) -> list[str]:
+    result = column.result
+    lines = [
+        (
+            f"- {column.table_identifier}.{column.column_name}: "
+            f"{result.quality} ({result.score:.2f})"
+        )
+    ]
+    if result.issues:
+        lines.append(f"  - Issues: {'; '.join(result.issues)}")
+    if result.recommendation:
+        lines.append(f"  - Recommendation: {result.recommendation}")
+    return lines
+
+
+def _render_column_detail(column: ColumnDescriptionAnalysis) -> list[str]:
+    result = column.result
+    lines = [
+        (
+            f"  - {column.column_name}: {result.quality} ({result.score:.2f}) - "
+            f"{column.description or 'Missing'}"
+        )
+    ]
+    if result.issues:
+        lines.append(f"    - Issues: {'; '.join(result.issues)}")
+    if result.recommendation:
+        lines.append(f"    - Recommendation: {result.recommendation}")
+    return lines
 
 
 def _analyze_table(table: TableContext) -> TableDescriptionAnalysis:
@@ -264,4 +360,3 @@ def _mostly_repeats_name(name: str, description: str) -> bool:
         return False
     overlap = sum(1 for word in description_words if word in name_words)
     return overlap / len(description_words) >= 0.7
-
