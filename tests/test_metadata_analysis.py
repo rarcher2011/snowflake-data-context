@@ -43,6 +43,61 @@ def test_analyze_table_metadata_descriptions_rolls_up_column_quality() -> None:
     assert needs_improvement[1].result.quality == QUALITY_MISSING
 
 
+def test_schema_description_analysis_renders_context_markdown() -> None:
+    analysis = analyze_table_metadata_descriptions(
+        [
+            TableContext(
+                database="ANALYTICS",
+                schema="PUBLIC",
+                name="ORDERS",
+                kind="TABLE",
+                description="Order fact table with one row per customer order.",
+                columns=(
+                    "ORDER_ID NUMBER -- Unique identifier for an order from the commerce system.",
+                    "CUSTOMER_ID NUMBER -- id",
+                    "ORDER_TOTAL NUMBER",
+                ),
+                context_markdown="",
+            )
+        ]
+    )
+
+    context = analysis.to_context_markdown()
+
+    assert "# Snowflake Metadata Description Analysis" in context
+    assert "- Tables analyzed: 1" in context
+    assert "- Description coverage: 66.7%" in context
+    assert "ANALYTICS.PUBLIC.ORDERS.CUSTOMER_ID: weak" in context
+    assert "ANALYTICS.PUBLIC.ORDERS.ORDER_TOTAL: missing" in context
+    assert "description is generic" in context
+    assert "Add a description that explains what ORDER_TOTAL represents" in context
+    assert "ORDER_ID: strong" in context
+
+
+def test_schema_description_analysis_can_render_only_columns_needing_improvement() -> None:
+    analysis = analyze_table_metadata_descriptions(
+        [
+            TableContext(
+                database="ANALYTICS",
+                schema="PUBLIC",
+                name="ORDERS",
+                kind="TABLE",
+                description="Order fact table with one row per customer order.",
+                columns=(
+                    "ORDER_ID NUMBER -- Unique identifier for an order from the commerce system.",
+                    "CUSTOMER_ID NUMBER -- id",
+                ),
+                context_markdown="",
+            )
+        ]
+    )
+
+    context = analysis.to_context_markdown(include_all_columns=False)
+
+    assert "CUSTOMER_ID: weak" in context
+    assert "ORDER_ID: strong" not in context
+
+
 def test_parse_column_description_accepts_common_compact_formats() -> None:
     assert parse_column_description("ORDER_ID NUMBER -- Unique order identifier.") == (
         "ORDER_ID",
@@ -72,4 +127,3 @@ def test_score_description_flags_missing_generic_and_strong_descriptions() -> No
     assert "generic" in " ".join(generic.issues)
     assert strong.quality == QUALITY_STRONG
     assert strong.recommendation is None
-

@@ -175,6 +175,8 @@ Use the provider-level methods when live Snowflake metadata retrieval is availab
 ```python
 analysis = provider.analyze_schema_descriptions()
 
+analysis.print_context()
+
 for column in analysis.columns_needing_improvement:
     print(column.table_identifier, column.column_name, column.result.recommendation)
 ```
@@ -295,6 +297,7 @@ See [docs/LONG_RUNNING_AGENT_HARNESS.md](docs/LONG_RUNNING_AGENT_HARNESS.md) for
 The SDK extension exposes `analyze_table_metadata_descriptions` for scoring table and column descriptions in existing `TableContext` objects. `SnowflakeMetadataProvider.analyze_schema_descriptions()` delegates through `describe_tables(None)` so the intended workflow is to analyze every table returned for the configured schema.
 
 The analysis reports description coverage, weak or missing column descriptions, quality scores, issues, and improvement recommendations.
+Use `analysis.to_context_markdown()` or `analysis.print_context()` to produce a human-readable report that can also be passed to an LLM as schema context.
 
 ```python
 from openai_snowflake_agent_context import analyze_table_metadata_descriptions
@@ -317,7 +320,7 @@ analysis = analyze_table_metadata_descriptions(
     ]
 )
 
-print(analysis.columns_needing_improvement)
+print(analysis.to_context_markdown())
 ```
 
 ## Snowflake Description Updates
