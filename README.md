@@ -183,7 +183,28 @@ for column in analysis.columns_needing_improvement:
 
 For local tests or offline analysis, pass `TableContext` objects directly to `analyze_table_metadata_descriptions`.
 
-### 4. Review description updates before applying
+### 4. Suggest column descriptions from sample records
+
+When a human explicitly wants row-level examples used as context, the provider can fetch a small random sample, call the OpenAI SDK, and return reviewable column description suggestions:
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+suggestions = provider.suggest_column_descriptions(
+    "ANALYTICS.PUBLIC.ORDERS",
+    client,
+    model="gpt-4.1-mini",
+    sample_size=5,
+)
+
+print(suggestions.column_descriptions)
+```
+
+Review suggested descriptions before applying them through `provider.update_descriptions(...)`.
+
+### 5. Review description updates before applying
 
 Description updates are planned first and applied only when explicitly requested:
 
@@ -209,7 +230,7 @@ for statement in result.plan.statements:
 
 Set `apply=True` only after a human has reviewed the generated Snowflake `COMMENT` statements.
 
-### 5. Configure the long-running harness
+### 6. Configure the long-running harness
 
 Create an `agent_harness.toml` file at the repo root:
 

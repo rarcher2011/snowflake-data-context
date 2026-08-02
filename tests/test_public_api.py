@@ -1,5 +1,7 @@
 import openai_snowflake_agent_context as package
 from openai_snowflake_agent_context import (
+    ColumnDescriptionSuggestion,
+    ColumnDescriptionSuggestionResult,
     DescriptionUpdateRequest,
     SampledTableResult,
     SchemaDescriptionAnalysis,
@@ -19,6 +21,8 @@ from openai_snowflake_agent_context import (
 
 
 def test_public_api_exports_core_types() -> None:
+    assert package.ColumnDescriptionSuggestion is ColumnDescriptionSuggestion
+    assert package.ColumnDescriptionSuggestionResult is ColumnDescriptionSuggestionResult
     assert package.DescriptionUpdateRequest is DescriptionUpdateRequest
     assert package.SnowflakeContextConfig is SnowflakeContextConfig
     assert package.SnowflakeDescriptionUpdatePlan is SnowflakeDescriptionUpdatePlan
@@ -35,6 +39,8 @@ def test_public_api_exports_core_types() -> None:
     assert package.load_private_key_der is load_private_key_der
     assert package.sample_table is sample_table
     assert sorted(package.__all__) == [
+        "ColumnDescriptionSuggestion",
+        "ColumnDescriptionSuggestionResult",
         "DescriptionUpdateRequest",
         "SampledTableResult",
         "SchemaDescriptionAnalysis",

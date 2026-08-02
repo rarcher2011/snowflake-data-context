@@ -30,10 +30,18 @@ class FakeMetadataCursor:
     def __init__(self) -> None:
         self.executed_sql: list[str] = []
         self._rows: list[object] = []
+        self.description: list[tuple[str]] = []
 
     def execute(self, sql: str) -> object:
         self.executed_sql.append(sql)
         if "INFORMATION_SCHEMA.TABLES" in sql:
+            self.description = [
+                ("TABLE_CATALOG",),
+                ("TABLE_SCHEMA",),
+                ("TABLE_NAME",),
+                ("TABLE_TYPE",),
+                ("COMMENT",),
+            ]
             self._rows = [
                 (
                     "ANALYTICS",
@@ -51,6 +59,15 @@ class FakeMetadataCursor:
                 ),
             ]
         elif "INFORMATION_SCHEMA.COLUMNS" in sql:
+            self.description = [
+                ("TABLE_CATALOG",),
+                ("TABLE_SCHEMA",),
+                ("TABLE_NAME",),
+                ("COLUMN_NAME",),
+                ("DATA_TYPE",),
+                ("COMMENT",),
+                ("ORDINAL_POSITION",),
+            ]
             self._rows = [
                 (
                     "ANALYTICS",
@@ -80,7 +97,11 @@ class FakeMetadataCursor:
                     1,
                 ),
             ]
+        elif "ORDER BY RANDOM()" in sql:
+            self.description = [("ORDER_ID",), ("CUSTOMER_ID",)]
+            self._rows = [(1001, 501), (1002, 502)]
         else:
+            self.description = []
             self._rows = []
         return self
 
@@ -94,6 +115,33 @@ class FakeMetadataConnection:
 
     def cursor(self) -> FakeMetadataCursor:
         return self.cursor_instance
+
+
+class FakeOpenAIResponse:
+    output_text = (
+        '{"columns": ['
+        '{"name": "ORDER_ID", "description": '
+        '"Unique identifier for a customer order in the commerce system.", '
+        '"rationale": "Values are unique order keys."}, '
+        '{"name": "CUSTOMER_ID", "description": '
+        '"Customer identifier used to join orders to customer records.", '
+        '"rationale": "Sample values link each order to a customer."}'
+        "]}"
+    )
+
+
+class FakeOpenAIResponses:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    def create(self, **kwargs: object) -> FakeOpenAIResponse:
+        self.requests.append(kwargs)
+        return FakeOpenAIResponse()
+
+
+class FakeOpenAIClient:
+    def __init__(self) -> None:
+        self.responses = FakeOpenAIResponses()
 
 
 class FakeMetadataProvider(SnowflakeMetadataProvider):
@@ -262,6 +310,63 @@ def test_provider_sample_table_delegates_to_sampling_helper() -> None:
 
     assert result.sampled_table == "ANALYTICS.PUBLIC.ORDERS_SAMPLE"
     assert connection.cursor_instance.executed_sql == [result.sql]
+
+
+def test_provider_suggest_column_descriptions_samples_rows_and_calls_openai() -> None:
+    connection = FakeMetadataConnection()
+    openai_client = FakeOpenAIClient()
+    provider = SnowflakeMetadataProvider(
+        connection,
+        SnowflakeContextConfig(
+            account="test-account",
+            user="analyst",
+            warehouse="agent_wh",
+            database="ANALYTICS",
+            schema="PUBLIC",
+        ),
+    )
+
+    result = provider.suggest_column_descriptions(
+        "ANALYTICS.PUBLIC.ORDERS",
+        openai_client,
+        model="gpt-4.1-mini",
+        sample_size=2,
+    )
+
+    assert result.table_identifier == "ANALYTICS.PUBLIC.ORDERS"
+    assert result.sample_records == (
+        {"ORDER_ID": 1001, "CUSTOMER_ID": 501},
+        {"ORDER_ID": 1002, "CUSTOMER_ID": 502},
+    )
+    assert result.column_descriptions == {
+        "ORDER_ID": "Unique identifier for a customer order in the commerce system.",
+        "CUSTOMER_ID": "Customer identifier used to join orders to customer records.",
+    }
+    assert result.sample_sql == (
+        'SELECT *\nFROM "ANALYTICS"."PUBLIC"."ORDERS"\nORDER BY RANDOM()\nLIMIT 2'
+    )
+    assert connection.cursor_instance.executed_sql[-1] == result.sample_sql
+    assert openai_client.responses.requests[0]["model"] == "gpt-4.1-mini"
+    request_input = openai_client.responses.requests[0]["input"]
+    assert '"name": "CUSTOMER_ID"' in str(request_input)
+    assert '"data_type": "NUMBER"' in str(request_input)
+    assert '"ORDER_ID": 1001' in str(request_input)
+
+
+def test_provider_suggest_column_descriptions_requires_table_metadata() -> None:
+    provider = SnowflakeMetadataProvider(
+        FakeMetadataConnection(),
+        SnowflakeContextConfig(
+            account="test-account",
+            user="analyst",
+            warehouse="agent_wh",
+            database="ANALYTICS",
+            schema="PUBLIC",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="No Snowflake table metadata"):
+        provider.suggest_column_descriptions("ANALYTICS.PUBLIC.MISSING", FakeOpenAIClient())
 
 
 @pytest.mark.xfail(reason="Formatter module will be implemented during the next TDD phase.")
