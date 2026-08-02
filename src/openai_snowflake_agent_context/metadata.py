@@ -12,6 +12,7 @@ if TYPE_CHECKING:
         DescriptionUpdateRequest,
         SnowflakeDescriptionUpdateResult,
     )
+    from .description_suggestions import ColumnDescriptionSuggestionResult, OpenAIClient
     from .metadata_analysis import SchemaDescriptionAnalysis
     from .sampling import SampledTableResult
 
@@ -137,6 +138,29 @@ class SnowflakeMetadataProvider:
             table_name,
             destination_location,
             sample_percent=sample_percent,
+        )
+
+    def suggest_column_descriptions(
+        self,
+        table_name: str,
+        openai_client: OpenAIClient,
+        *,
+        model: str = "gpt-4.1-mini",
+        sample_size: int = 5,
+    ) -> ColumnDescriptionSuggestionResult:
+        """Sample a table and ask OpenAI for suggested column descriptions."""
+
+        from .description_suggestions import suggest_column_descriptions_from_samples
+
+        tables = self.describe_tables([table_name])
+        if not tables:
+            raise ValueError(f"No Snowflake table metadata found for {table_name}.")
+        return suggest_column_descriptions_from_samples(
+            connection=self._connection,
+            table=tables[0],
+            openai_client=openai_client,
+            model=model,
+            sample_size=sample_size,
         )
 
 

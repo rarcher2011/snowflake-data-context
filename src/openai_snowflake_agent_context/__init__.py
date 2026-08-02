@@ -2,6 +2,8 @@
 
 __all__ = [
     "DescriptionUpdateRequest",
+    "ColumnDescriptionSuggestion",
+    "ColumnDescriptionSuggestionResult",
     "SchemaDescriptionAnalysis",
     "SnowflakeContextConfig",
     "SnowflakeDescriptionUpdatePlan",
@@ -29,6 +31,10 @@ from .description_updates import (
     DescriptionUpdateRequest,
     SnowflakeDescriptionUpdatePlan,
     SnowflakeDescriptionUpdateResult,
+)
+from .description_suggestions import (
+    ColumnDescriptionSuggestion,
+    ColumnDescriptionSuggestionResult,
 )
 from .metadata import SnowflakeMetadataProvider
 from .metadata_analysis import SchemaDescriptionAnalysis, analyze_table_metadata_descriptions
