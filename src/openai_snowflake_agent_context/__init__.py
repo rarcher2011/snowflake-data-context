@@ -1,6 +1,10 @@
 """Snowflake metadata context helpers for OpenAI Python SDK workflows."""
 
 __all__ = [
+    "AgentOrchestrator",
+    "AgentRole",
+    "OrchestratorDecision",
+    "OrchestratorState",
     "DescriptionUpdateRequest",
     "ColumnDescriptionSuggestion",
     "ColumnDescriptionSuggestionResult",
@@ -11,6 +15,7 @@ __all__ = [
     "SnowflakeMetadataProvider",
     "SampledTableResult",
     "analyze_table_metadata_descriptions",
+    "build_default_agent_roles",
     "build_private_key_connection_kwargs",
     "build_sample_table_sql",
     "build_openapi_schema",
@@ -20,6 +25,13 @@ __all__ = [
     "sample_table",
 ]
 
+from .agent_orchestrator import (
+    AgentOrchestrator,
+    AgentRole,
+    OrchestratorDecision,
+    OrchestratorState,
+    build_default_agent_roles,
+)
 from .chatgpt_plugin import build_openapi_schema, create_app
 from .config import SnowflakeContextConfig
 from .connection import (
