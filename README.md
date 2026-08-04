@@ -261,7 +261,23 @@ uv run scripts/start_agent_harness.py
 
 The harness writes `.agent_harness/session_context.md`, which future agents can read before continuing long-running analysis.
 
-### 6. Serve ChatGPT Actions locally
+### 7. Route work through the orchestrator layer
+
+Use the orchestrator layer after harness startup to decide which specialist agent should handle the next unit of work:
+
+```python
+from openai_snowflake_agent_context import AgentOrchestrator
+from openai_snowflake_agent_context.agent_harness import initialize_agent_session
+
+report = initialize_agent_session("agent_harness.toml")
+decision = AgentOrchestrator().plan_from_harness_report(report)
+
+print(decision.to_markdown())
+```
+
+The default roles route metadata discovery, transformation planning, quality review, stakeholder questions, and coordination work. The decision object can be serialized into harness status files or ChatGPT Action responses.
+
+### 8. Serve ChatGPT Actions locally
 
 Install the optional server dependencies:
 
