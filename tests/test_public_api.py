@@ -8,6 +8,7 @@ from openai_snowflake_agent_context import (
     DescriptionUpdateRequest,
     MultiAgentPlan,
     OrchestratorDecision,
+    OrchestratorEvaluationResult,
     OrchestratorState,
     SampledTableResult,
     SchemaDescriptionAnalysis,
@@ -23,6 +24,7 @@ from openai_snowflake_agent_context import (
     connect_with_private_key,
     create_app,
     load_private_key_der,
+    run_orchestrator_evaluation,
     sample_table,
 )
 
@@ -36,6 +38,7 @@ def test_public_api_exports_core_types() -> None:
     assert package.DescriptionUpdateRequest is DescriptionUpdateRequest
     assert package.MultiAgentPlan is MultiAgentPlan
     assert package.OrchestratorDecision is OrchestratorDecision
+    assert package.OrchestratorEvaluationResult is OrchestratorEvaluationResult
     assert package.OrchestratorState is OrchestratorState
     assert package.SnowflakeContextConfig is SnowflakeContextConfig
     assert package.SnowflakeDescriptionUpdatePlan is SnowflakeDescriptionUpdatePlan
@@ -51,6 +54,7 @@ def test_public_api_exports_core_types() -> None:
     assert package.connect_with_private_key is connect_with_private_key
     assert package.create_app is create_app
     assert package.load_private_key_der is load_private_key_der
+    assert package.run_orchestrator_evaluation is run_orchestrator_evaluation
     assert package.sample_table is sample_table
     assert sorted(package.__all__) == [
         "AgentAssignment",
@@ -61,6 +65,7 @@ def test_public_api_exports_core_types() -> None:
         "DescriptionUpdateRequest",
         "MultiAgentPlan",
         "OrchestratorDecision",
+        "OrchestratorEvaluationResult",
         "OrchestratorState",
         "SampledTableResult",
         "SchemaDescriptionAnalysis",
@@ -76,5 +81,6 @@ def test_public_api_exports_core_types() -> None:
         "connect_with_private_key",
         "create_app",
         "load_private_key_der",
+        "run_orchestrator_evaluation",
         "sample_table",
     ]

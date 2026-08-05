@@ -286,6 +286,12 @@ for assignment in plan.ready_assignments():
 
 The default roles route metadata discovery, transformation planning, quality review, stakeholder questions, and coordination work. Decisions and multi-agent plans can be serialized into harness status files or ChatGPT Action responses.
 
+Evaluate deterministic orchestrator behavior with:
+
+```bash
+uv run scripts/evaluate_orchestrator.py
+```
+
 ### 8. Serve ChatGPT Actions locally
 
 Install the optional server dependencies:

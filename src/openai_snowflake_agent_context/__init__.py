@@ -6,6 +6,7 @@ __all__ = [
     "AgentRole",
     "MultiAgentPlan",
     "OrchestratorDecision",
+    "OrchestratorEvaluationResult",
     "OrchestratorState",
     "DescriptionUpdateRequest",
     "ColumnDescriptionSuggestion",
@@ -24,6 +25,7 @@ __all__ = [
     "connect_with_private_key",
     "create_app",
     "load_private_key_der",
+    "run_orchestrator_evaluation",
     "sample_table",
 ]
 
@@ -54,4 +56,5 @@ from .description_suggestions import (
 )
 from .metadata import SnowflakeMetadataProvider
 from .metadata_analysis import SchemaDescriptionAnalysis, analyze_table_metadata_descriptions
+from .orchestrator_evaluation import OrchestratorEvaluationResult, run_orchestrator_evaluation
 from .sampling import SampledTableResult, build_sample_table_sql, sample_table
