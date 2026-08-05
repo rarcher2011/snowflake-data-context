@@ -275,7 +275,16 @@ decision = AgentOrchestrator().plan_from_harness_report(report)
 print(decision.to_markdown())
 ```
 
-The default roles route metadata discovery, transformation planning, quality review, stakeholder questions, and coordination work. The decision object can be serialized into harness status files or ChatGPT Action responses.
+For coordinated work that should be split across specialists, build a multi-agent plan:
+
+```python
+plan = AgentOrchestrator().plan_multi_agent_from_harness_report(report)
+
+for assignment in plan.ready_assignments():
+    print(assignment.assignment_id, assignment.agent.role_id, assignment.description)
+```
+
+The default roles route metadata discovery, transformation planning, quality review, stakeholder questions, and coordination work. Decisions and multi-agent plans can be serialized into harness status files or ChatGPT Action responses.
 
 ### 8. Serve ChatGPT Actions locally
 

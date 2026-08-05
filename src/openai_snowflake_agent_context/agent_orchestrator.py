@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Sequence
 
-from .agent_harness import HarnessReport
+from .agent_harness import HarnessReport, WorkItem
 
 
 @dataclass(frozen=True)
@@ -21,7 +22,15 @@ class AgentRole:
         """Return whether this role should handle the described work."""
 
         normalized = work_description.lower()
-        return any(keyword.lower() in normalized for keyword in self.keywords)
+        words = set(re.findall(r"[a-z0-9_]+", normalized))
+        for keyword in self.keywords:
+            normalized_keyword = keyword.lower()
+            if " " in normalized_keyword:
+                if normalized_keyword in normalized:
+                    return True
+            elif normalized_keyword in words:
+                return True
+        return False
 
 
 @dataclass(frozen=True)
@@ -89,6 +98,118 @@ class OrchestratorDecision:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class AgentAssignment:
+    """One specialist agent assignment in a coordinated multi-agent plan."""
+
+    assignment_id: str
+    agent: AgentRole
+    work_id: str | None
+    description: str
+    status: str
+    context: str
+    depends_on: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-friendly assignment payload."""
+
+        return {
+            "assignment_id": self.assignment_id,
+            "agent": {
+                "role_id": self.agent.role_id,
+                "title": self.agent.title,
+                "purpose": self.agent.purpose,
+            },
+            "work_id": self.work_id,
+            "description": self.description,
+            "status": self.status,
+            "context": self.context,
+            "depends_on": list(self.depends_on),
+        }
+
+
+@dataclass(frozen=True)
+class MultiAgentPlan:
+    """Coordinated plan for work that can span multiple specialist agents."""
+
+    objective: str
+    coordination_agent: AgentRole
+    assignments: tuple[AgentAssignment, ...]
+    status: str
+    shared_context: str
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def should_continue(self) -> bool:
+        """Return whether at least one assignment is ready to run."""
+
+        return bool(self.ready_assignments())
+
+    def ready_assignments(
+        self,
+        completed_assignment_ids: Sequence[str] | None = None,
+    ) -> tuple[AgentAssignment, ...]:
+        """Return assignments whose dependencies are complete."""
+
+        completed = set(completed_assignment_ids or ())
+        return tuple(
+            assignment
+            for assignment in self.assignments
+            if assignment.assignment_id not in completed
+            and assignment.status not in {"blocked", "completed"}
+            and all(dependency in completed for dependency in assignment.depends_on)
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-friendly plan payload for harness status or APIs."""
+
+        return {
+            "objective": self.objective,
+            "coordination_agent": {
+                "role_id": self.coordination_agent.role_id,
+                "title": self.coordination_agent.title,
+                "purpose": self.coordination_agent.purpose,
+            },
+            "status": self.status,
+            "shared_context": self.shared_context,
+            "warnings": list(self.warnings),
+            "should_continue": self.should_continue,
+            "assignments": [assignment.to_dict() for assignment in self.assignments],
+        }
+
+    def to_markdown(self) -> str:
+        """Render the multi-agent plan as human-readable handoff context."""
+
+        lines = [
+            "# Multi-Agent Orchestration Plan",
+            "",
+            f"- Objective: {self.objective}",
+            f"- Coordination agent: {self.coordination_agent.title} ({self.coordination_agent.role_id})",
+            f"- Status: {self.status}",
+            f"- Continue: {'yes' if self.should_continue else 'no'}",
+            "",
+            "## Assignments",
+        ]
+        if not self.assignments:
+            lines.append("- No assignments.")
+        for assignment in self.assignments:
+            dependencies = ", ".join(assignment.depends_on) if assignment.depends_on else "none"
+            lines.extend(
+                [
+                    f"- {assignment.assignment_id}: {assignment.agent.title}",
+                    f"  - Work ID: {assignment.work_id or 'none'}",
+                    f"  - Status: {assignment.status}",
+                    f"  - Depends on: {dependencies}",
+                    f"  - Description: {assignment.description}",
+                ]
+            )
+        if self.warnings:
+            lines.extend(["", "## Warnings"])
+            lines.extend(f"- {warning}" for warning in self.warnings)
+        lines.extend(["", "## Shared Context", self.shared_context or "No shared context."])
+        return "\n".join(lines)
+
+
 class AgentOrchestrator:
     """Routes harness work to specialist agent roles."""
 
@@ -150,6 +271,77 @@ class AgentOrchestrator:
                 f"Current work: {work_description}",
             ),
             should_continue=status_value.lower() not in {"blocked", "complete", "completed"},
+        )
+
+    def plan_multi_agent_from_harness_report(
+        self,
+        report: HarnessReport,
+        *,
+        objective: str | None = None,
+    ) -> MultiAgentPlan:
+        """Create a multi-agent plan from harness startup state."""
+
+        work_items = (report.next_work,) if report.next_work else ()
+        return self.plan_multi_agent_work(
+            objective=objective or _objective_from_report(report),
+            work_items=work_items,
+            status=report.status,
+            prior_context=_context_from_report(report),
+            warnings=tuple(report.warnings),
+        )
+
+    def plan_multi_agent_work(
+        self,
+        *,
+        objective: str,
+        work_items: Sequence[WorkItem],
+        status: dict[str, Any] | None = None,
+        prior_context: str | None = None,
+        warnings: Sequence[str] = (),
+    ) -> MultiAgentPlan:
+        """Build coordinated assignments for multiple specialist agents."""
+
+        status = status or {}
+        status_value = "needs_coordination" if warnings else str(status.get("status", "pending"))
+        if warnings:
+            return MultiAgentPlan(
+                objective=objective,
+                coordination_agent=self._fallback_role,
+                assignments=(),
+                status=status_value,
+                shared_context=prior_context or "",
+                warnings=tuple(warnings),
+            )
+
+        assignments: list[AgentAssignment] = []
+        metadata_assignment_ids: list[str] = []
+        for index, work_item in enumerate(work_items, start=1):
+            selected_role = self._select_role(work_item.description)
+            assignment_id = f"A{index}"
+            depends_on = _dependencies_for_role(selected_role, metadata_assignment_ids)
+            assignment = AgentAssignment(
+                assignment_id=assignment_id,
+                agent=selected_role,
+                work_id=work_item.work_id,
+                description=work_item.description,
+                status=str(status.get("status", "pending")),
+                context=_join_context(
+                    prior_context,
+                    f"Assigned work: {work_item.work_id}: {work_item.description}",
+                ),
+                depends_on=depends_on,
+            )
+            assignments.append(assignment)
+            if selected_role.role_id == "metadata_analyst":
+                metadata_assignment_ids.append(assignment_id)
+
+        return MultiAgentPlan(
+            objective=objective,
+            coordination_agent=self._fallback_role,
+            assignments=tuple(assignments),
+            status=status_value,
+            shared_context=prior_context or "",
+            warnings=tuple(warnings),
         )
 
     def _select_role(self, work_description: str) -> AgentRole:
@@ -266,3 +458,21 @@ def _next_work_id(report: HarnessReport) -> str | None:
     if report.next_work is None:
         return None
     return report.next_work.work_id
+
+
+def _dependencies_for_role(
+    role: AgentRole,
+    metadata_assignment_ids: Sequence[str],
+) -> tuple[str, ...]:
+    if role.role_id in {"data_engineer", "quality_reviewer"}:
+        return tuple(metadata_assignment_ids)
+    return ()
+
+
+def _objective_from_report(report: HarnessReport) -> str:
+    if report.next_work is not None:
+        return report.next_work.description
+    summary = report.memory.summary
+    if summary:
+        return summary
+    return "Coordinate long-running analytics work"
