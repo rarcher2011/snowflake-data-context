@@ -2,7 +2,9 @@
 
 __all__ = [
     "AgentOrchestrator",
+    "AgentAssignment",
     "AgentRole",
+    "MultiAgentPlan",
     "OrchestratorDecision",
     "OrchestratorState",
     "DescriptionUpdateRequest",
@@ -26,8 +28,10 @@ __all__ = [
 ]
 
 from .agent_orchestrator import (
+    AgentAssignment,
     AgentOrchestrator,
     AgentRole,
+    MultiAgentPlan,
     OrchestratorDecision,
     OrchestratorState,
     build_default_agent_roles,
