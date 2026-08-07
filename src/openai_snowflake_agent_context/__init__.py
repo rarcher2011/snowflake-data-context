@@ -4,6 +4,8 @@ __all__ = [
     "AgentOrchestrator",
     "AgentAssignment",
     "AgentRole",
+    "DataAnalystAgentContext",
+    "DataAnalystAgentResult",
     "MultiAgentPlan",
     "OrchestratorDecision",
     "OrchestratorEvaluationResult",
@@ -18,6 +20,8 @@ __all__ = [
     "SnowflakeMetadataProvider",
     "SampledTableResult",
     "analyze_table_metadata_descriptions",
+    "build_data_analyst_context",
+    "build_data_analyst_multi_agent_plan",
     "build_default_agent_roles",
     "build_private_key_connection_kwargs",
     "build_sample_table_sql",
@@ -26,9 +30,17 @@ __all__ = [
     "create_app",
     "load_private_key_der",
     "run_orchestrator_evaluation",
+    "run_data_analyst_agent",
     "sample_table",
 ]
 
+from .agentic_flows import (
+    DataAnalystAgentContext,
+    DataAnalystAgentResult,
+    build_data_analyst_context,
+    build_data_analyst_multi_agent_plan,
+    run_data_analyst_agent,
+)
 from .agent_orchestrator import (
     AgentAssignment,
     AgentOrchestrator,
