@@ -5,6 +5,10 @@ from openai_snowflake_agent_context import (
     AgentRole,
     ColumnDescriptionSuggestion,
     ColumnDescriptionSuggestionResult,
+    DataAnalystAgentContext,
+    DataAnalystAgentResult,
+    DataAnalystEvalItem,
+    DataAnalystEvalRunResult,
     DescriptionUpdateRequest,
     MultiAgentPlan,
     OrchestratorDecision,
@@ -17,13 +21,19 @@ from openai_snowflake_agent_context import (
     SnowflakeDescriptionUpdateResult,
     SnowflakeMetadataProvider,
     analyze_table_metadata_descriptions,
+    build_data_analyst_context,
+    build_data_analyst_eval_data_source,
+    build_data_analyst_eval_items,
+    build_data_analyst_multi_agent_plan,
     build_default_agent_roles,
     build_private_key_connection_kwargs,
     build_sample_table_sql,
     build_openapi_schema,
     connect_with_private_key,
+    create_data_analyst_eval_run,
     create_app,
     load_private_key_der,
+    run_data_analyst_agent,
     run_orchestrator_evaluation,
     sample_table,
 )
@@ -35,6 +45,10 @@ def test_public_api_exports_core_types() -> None:
     assert package.AgentRole is AgentRole
     assert package.ColumnDescriptionSuggestion is ColumnDescriptionSuggestion
     assert package.ColumnDescriptionSuggestionResult is ColumnDescriptionSuggestionResult
+    assert package.DataAnalystAgentContext is DataAnalystAgentContext
+    assert package.DataAnalystAgentResult is DataAnalystAgentResult
+    assert package.DataAnalystEvalItem is DataAnalystEvalItem
+    assert package.DataAnalystEvalRunResult is DataAnalystEvalRunResult
     assert package.DescriptionUpdateRequest is DescriptionUpdateRequest
     assert package.MultiAgentPlan is MultiAgentPlan
     assert package.OrchestratorDecision is OrchestratorDecision
@@ -47,13 +61,19 @@ def test_public_api_exports_core_types() -> None:
     assert package.SampledTableResult is SampledTableResult
     assert package.SchemaDescriptionAnalysis is SchemaDescriptionAnalysis
     assert package.analyze_table_metadata_descriptions is analyze_table_metadata_descriptions
+    assert package.build_data_analyst_context is build_data_analyst_context
+    assert package.build_data_analyst_eval_data_source is build_data_analyst_eval_data_source
+    assert package.build_data_analyst_eval_items is build_data_analyst_eval_items
+    assert package.build_data_analyst_multi_agent_plan is build_data_analyst_multi_agent_plan
     assert package.build_default_agent_roles is build_default_agent_roles
     assert package.build_private_key_connection_kwargs is build_private_key_connection_kwargs
     assert package.build_sample_table_sql is build_sample_table_sql
     assert package.build_openapi_schema is build_openapi_schema
     assert package.connect_with_private_key is connect_with_private_key
+    assert package.create_data_analyst_eval_run is create_data_analyst_eval_run
     assert package.create_app is create_app
     assert package.load_private_key_der is load_private_key_der
+    assert package.run_data_analyst_agent is run_data_analyst_agent
     assert package.run_orchestrator_evaluation is run_orchestrator_evaluation
     assert package.sample_table is sample_table
     assert sorted(package.__all__) == [
@@ -62,6 +82,10 @@ def test_public_api_exports_core_types() -> None:
         "AgentRole",
         "ColumnDescriptionSuggestion",
         "ColumnDescriptionSuggestionResult",
+        "DataAnalystAgentContext",
+        "DataAnalystAgentResult",
+        "DataAnalystEvalItem",
+        "DataAnalystEvalRunResult",
         "DescriptionUpdateRequest",
         "MultiAgentPlan",
         "OrchestratorDecision",
@@ -74,13 +98,19 @@ def test_public_api_exports_core_types() -> None:
         "SnowflakeDescriptionUpdateResult",
         "SnowflakeMetadataProvider",
         "analyze_table_metadata_descriptions",
+        "build_data_analyst_context",
+        "build_data_analyst_eval_data_source",
+        "build_data_analyst_eval_items",
+        "build_data_analyst_multi_agent_plan",
         "build_default_agent_roles",
         "build_openapi_schema",
         "build_private_key_connection_kwargs",
         "build_sample_table_sql",
         "connect_with_private_key",
         "create_app",
+        "create_data_analyst_eval_run",
         "load_private_key_der",
+        "run_data_analyst_agent",
         "run_orchestrator_evaluation",
         "sample_table",
     ]
