@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Callable
 
@@ -24,6 +25,9 @@ class OrchestratorEvaluationResult:
     total_cases: int
     passed_cases: int
     failures: tuple[str, ...]
+    sample_questions: tuple[str, ...] = ()
+    sample_data: tuple[dict[str, object], ...] = ()
+    sample_sql: tuple[str, ...] = ()
 
     @property
     def score(self) -> float:
@@ -48,6 +52,9 @@ class OrchestratorEvaluationResult:
             "score": self.score,
             "passed": self.passed,
             "failures": list(self.failures),
+            "sample_questions": list(self.sample_questions),
+            "sample_data": list(self.sample_data),
+            "sample_sql": list(self.sample_sql),
         }
 
     def to_markdown(self) -> str:
@@ -61,6 +68,22 @@ class OrchestratorEvaluationResult:
             f"- Score: {self.score:.1%}",
             f"- Passed: {'yes' if self.passed else 'no'}",
         ]
+        if self.sample_questions or self.sample_data or self.sample_sql:
+            lines.extend(["", "## Sample Inputs"])
+        if self.sample_questions:
+            lines.extend(["", "Questions:"])
+            lines.extend(f"- {question}" for question in self.sample_questions)
+        if self.sample_data:
+            lines.extend(["", "Data:"])
+            lines.append("```json")
+            lines.append(json.dumps(list(self.sample_data), indent=2, sort_keys=True))
+            lines.append("```")
+        if self.sample_sql:
+            lines.extend(["", "SQL:"])
+            for statement in self.sample_sql:
+                lines.append("```sql")
+                lines.append(statement)
+                lines.append("```")
         if self.failures:
             lines.extend(["", "## Failures"])
             lines.extend(f"- {failure}" for failure in self.failures)
@@ -86,7 +109,40 @@ def run_orchestrator_evaluation(
         total_cases=len(cases),
         passed_cases=passed_cases,
         failures=tuple(failures),
+        sample_questions=SAMPLE_QUESTIONS,
+        sample_data=SAMPLE_DATA,
+        sample_sql=SAMPLE_SQL,
     )
+
+
+SAMPLE_QUESTIONS = (
+    "Which columns in the orders table need better descriptions before an agent writes SQL?",
+    "Can an agent create a customer order mart from the sampled orders data?",
+    "Do the sample rows show quality risks in order totals or fulfillment status values?",
+)
+
+SAMPLE_DATA = (
+    {
+        "ORDER_ID": 1001,
+        "CUSTOMER_ID": 501,
+        "ORDER_TOTAL": 125.42,
+        "ORDER_STATUS": "SHIPPED",
+    },
+    {
+        "ORDER_ID": 1002,
+        "CUSTOMER_ID": 502,
+        "ORDER_TOTAL": 0,
+        "ORDER_STATUS": "PENDING_REVIEW",
+    },
+)
+
+SAMPLE_SQL = (
+    (
+        "SELECT ORDER_ID, CUSTOMER_ID, ORDER_TOTAL, ORDER_STATUS\n"
+        "FROM ANALYTICS.PUBLIC.ORDERS_SAMPLE\n"
+        "ORDER BY ORDER_ID"
+    ),
+)
 
 
 def _default_evaluation_cases(
@@ -142,6 +198,33 @@ def _default_evaluation_cases(
                 ),
             ),
         ),
+        OrchestratorEvaluationCase(
+            name="carries sample questions data and sql into multi-agent context",
+            assertion=lambda: _expect_sample_context(
+                orchestrator.plan_multi_agent_work(
+                    objective=SAMPLE_QUESTIONS[1],
+                    work_items=(
+                        WorkItem(
+                            work_id="EVAL-7",
+                            description="Analyze Snowflake metadata descriptions for sampled orders",
+                            checked=False,
+                        ),
+                        WorkItem(
+                            work_id="EVAL-8",
+                            description="Review data quality risks in sampled order totals",
+                            checked=False,
+                        ),
+                        WorkItem(
+                            work_id="EVAL-9",
+                            description="Create transformation SQL for a customer order mart",
+                            checked=False,
+                        ),
+                    ),
+                    status={"status": "pending"},
+                    prior_context=_sample_context_markdown(),
+                ),
+            ),
+        ),
     )
 
 
@@ -178,6 +261,30 @@ def _expect_multi_agent_dependencies(plan: MultiAgentPlan) -> tuple[bool, str]:
     return True, "multi-agent dependencies are correct"
 
 
+def _expect_sample_context(plan: MultiAgentPlan) -> tuple[bool, str]:
+    expected_roles = ["metadata_analyst", "quality_reviewer", "data_engineer"]
+    actual_roles = [assignment.agent.role_id for assignment in plan.assignments]
+    if actual_roles != expected_roles:
+        return False, f"unexpected sample-context assignment roles: {actual_roles}"
+
+    required_context = (
+        SAMPLE_QUESTIONS[0],
+        "ORDER_TOTAL",
+        "PENDING_REVIEW",
+        "ANALYTICS.PUBLIC.ORDERS_SAMPLE",
+        "SELECT ORDER_ID",
+    )
+    combined_context = "\n".join(
+        [plan.shared_context, *(assignment.context for assignment in plan.assignments)]
+    )
+    missing = [value for value in required_context if value not in combined_context]
+    if missing:
+        return False, f"sample context missing values: {missing}"
+    if plan.assignments[1].depends_on != ("A1",) or plan.assignments[2].depends_on != ("A1",):
+        return False, "quality and transformation assignments should depend on metadata analysis"
+    return True, "sample questions, data, and SQL are present in orchestrator context"
+
+
 def _warning_report() -> HarnessReport:
     return HarnessReport(
         repo_path="/repo",
@@ -194,3 +301,17 @@ def _warning_report() -> HarnessReport:
         session_context_file="/repo/.agent_harness/session_context.md",
         generated_at="2026-08-05T12:00:00+00:00",
     )
+
+
+def _sample_context_markdown() -> str:
+    lines = [
+        "Sample questions:",
+        *(f"- {question}" for question in SAMPLE_QUESTIONS),
+        "",
+        "Sample data:",
+        json.dumps(list(SAMPLE_DATA), indent=2, sort_keys=True),
+        "",
+        "Sample SQL:",
+        *SAMPLE_SQL,
+    ]
+    return "\n".join(lines)
