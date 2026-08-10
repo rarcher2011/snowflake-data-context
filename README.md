@@ -292,7 +292,7 @@ Evaluate deterministic orchestrator behavior with:
 uv run scripts/evaluate_orchestrator.py
 ```
 
-See [docs/DATA_ANALYST_AGENT_FLOWS.md](docs/DATA_ANALYST_AGENT_FLOWS.md) for end-to-end data analyst agent flows, including Snowflake private-key connection setup, single-agent runs, multi-agent plans, and sample-record description suggestions.
+See [docs/DATA_ANALYST_AGENT_FLOWS.md](docs/DATA_ANALYST_AGENT_FLOWS.md) for end-to-end data analyst agent flows, including Snowflake private-key connection setup, OpenAI Responses calls, OpenAI eval runs, multi-agent plans, and sample-record description suggestions.
 
 ### 8. Serve ChatGPT Actions locally
 

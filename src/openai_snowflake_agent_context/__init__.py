@@ -6,6 +6,8 @@ __all__ = [
     "AgentRole",
     "DataAnalystAgentContext",
     "DataAnalystAgentResult",
+    "DataAnalystEvalItem",
+    "DataAnalystEvalRunResult",
     "MultiAgentPlan",
     "OrchestratorDecision",
     "OrchestratorEvaluationResult",
@@ -21,24 +23,32 @@ __all__ = [
     "SampledTableResult",
     "analyze_table_metadata_descriptions",
     "build_data_analyst_context",
+    "build_data_analyst_eval_data_source",
+    "build_data_analyst_eval_items",
     "build_data_analyst_multi_agent_plan",
     "build_default_agent_roles",
     "build_private_key_connection_kwargs",
     "build_sample_table_sql",
     "build_openapi_schema",
     "connect_with_private_key",
+    "create_data_analyst_eval_run",
     "create_app",
     "load_private_key_der",
-    "run_orchestrator_evaluation",
     "run_data_analyst_agent",
+    "run_orchestrator_evaluation",
     "sample_table",
 ]
 
 from .agentic_flows import (
     DataAnalystAgentContext,
     DataAnalystAgentResult,
+    DataAnalystEvalItem,
+    DataAnalystEvalRunResult,
     build_data_analyst_context,
+    build_data_analyst_eval_data_source,
+    build_data_analyst_eval_items,
     build_data_analyst_multi_agent_plan,
+    create_data_analyst_eval_run,
     run_data_analyst_agent,
 )
 from .agent_orchestrator import (
@@ -57,14 +67,14 @@ from .connection import (
     connect_with_private_key,
     load_private_key_der,
 )
+from .description_suggestions import (
+    ColumnDescriptionSuggestion,
+    ColumnDescriptionSuggestionResult,
+)
 from .description_updates import (
     DescriptionUpdateRequest,
     SnowflakeDescriptionUpdatePlan,
     SnowflakeDescriptionUpdateResult,
-)
-from .description_suggestions import (
-    ColumnDescriptionSuggestion,
-    ColumnDescriptionSuggestionResult,
 )
 from .metadata import SnowflakeMetadataProvider
 from .metadata_analysis import SchemaDescriptionAnalysis, analyze_table_metadata_descriptions

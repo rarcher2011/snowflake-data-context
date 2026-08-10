@@ -2,7 +2,7 @@
 
 This guide shows how to use `openai-snowflake-agent-context` as the context and orchestration layer for a Snowflake-grounded data analyst agent.
 
-The SDK extension does not replace the OpenAI Python SDK. It prepares Snowflake metadata, description-quality analysis, orchestration context, and reviewable follow-up work so an OpenAI-powered agent has useful grounding before it writes SQL or recommends analysis.
+The SDK extension does not replace the OpenAI Python SDK. It prepares Snowflake metadata, description-quality analysis, orchestration context, eval inputs, sample-record description suggestions, and reviewable follow-up work so an OpenAI-powered agent has useful grounding before it writes SQL or recommends analysis.
 
 ## 1. Install And Configure
 
@@ -102,7 +102,36 @@ context = build_data_analyst_context(
 print(context.to_markdown())
 ```
 
-## 5. Build A Multi-Agent Analyst Plan
+## 5. Create An OpenAI Eval Run
+
+Create an eval in the OpenAI platform first, then use its eval ID to run the data analyst agent against Snowflake-grounded questions:
+
+```python
+from openai_snowflake_agent_context import create_data_analyst_eval_run
+
+eval_run = create_data_analyst_eval_run(
+    openai_client=client,
+    provider=provider,
+    eval_id="eval_...",
+    run_name="orders-agent-regression",
+    model="gpt-4.1",
+    table_names=("ANALYTICS.PUBLIC.ORDERS",),
+    questions=(
+        "Which columns need better descriptions before an agent writes SQL?",
+        "What data quality risks should be checked before creating an orders mart?",
+    ),
+    expected_outputs=(
+        "Mention weak or missing descriptions.",
+        "Mention review of totals and status values.",
+    ),
+)
+
+print(eval_run.eval_run)
+```
+
+The helper builds a `completions` eval data source with `file_content` items. Each item includes the analyst question, Snowflake metadata context, orchestration context, and optional expected output.
+
+## 6. Build A Multi-Agent Analyst Plan
 
 Use the multi-agent flow when the work should be split across metadata analysis, quality review, and SQL or transformation planning:
 
@@ -127,7 +156,7 @@ By default, the generated assignments are:
 
 Quality and SQL assignments depend on metadata analysis, so a runner can execute ready assignments first and then continue with dependent work after the metadata assignment completes.
 
-## 6. Suggest Column Descriptions From Sample Records
+## 7. Suggest Column Descriptions From Sample Records
 
 When a human explicitly approves row-level examples, use the sample-record description flow:
 
@@ -163,7 +192,7 @@ for statement in result.plan.statements:
 
 Only pass `apply=True` after a human reviews the generated Snowflake `COMMENT` statements.
 
-## 7. Long-Running Agent Sessions
+## 8. Long-Running Agent Sessions
 
 For recurring or long-running analysis, combine these flows with the harness:
 
@@ -185,4 +214,4 @@ The harness restores memory, status, and the next work item. The orchestrator tu
 - Sampling rows requires an explicit method call and sample size.
 - Description updates are dry-run by default.
 - Generated SQL and Snowflake `COMMENT` statements should be reviewed before execution.
-- The agent prompt tells the model not to invent tables or columns.
+- The data analyst prompt tells the model not to invent tables or columns.
