@@ -11,6 +11,16 @@ from openai_snowflake_agent_context.agentic_flows import (
 from openai_snowflake_agent_context.metadata import TableContext
 
 
+class FakeResponseTextContent:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class FakeResponseOutput:
+    def __init__(self, text: str) -> None:
+        self.content = [FakeResponseTextContent(text)]
+
+
 class FakeConnection:
     def cursor(self) -> object:
         return object()
@@ -54,13 +64,20 @@ class FakeOpenAIResponse:
     output_text = "The orders table is usable, but CUSTOMER_ID and ORDER_TOTAL need metadata work."
 
 
-class FakeOpenAIResponses:
-    def __init__(self) -> None:
-        self.requests: list[dict[str, object]] = []
+class FakeStructuredOpenAIResponse:
+    output = [
+        FakeResponseOutput("The structured response text is extracted."),
+    ]
 
-    def create(self, **kwargs: object) -> FakeOpenAIResponse:
+
+class FakeOpenAIResponses:
+    def __init__(self, response: object | None = None) -> None:
+        self.requests: list[dict[str, object]] = []
+        self._response = response or FakeOpenAIResponse()
+
+    def create(self, **kwargs: object) -> object:
         self.requests.append(kwargs)
-        return FakeOpenAIResponse()
+        return self._response
 
 
 class FakeEvalRun:
@@ -82,8 +99,8 @@ class FakeEvals:
 
 
 class FakeOpenAIClient:
-    def __init__(self) -> None:
-        self.responses = FakeOpenAIResponses()
+    def __init__(self, response: object | None = None) -> None:
+        self.responses = FakeOpenAIResponses(response=response)
         self.evals = FakeEvals()
 
 
@@ -128,6 +145,19 @@ def test_run_data_analyst_agent_calls_openai_with_grounded_context() -> None:
     assert "ORDER_TOTAL: missing" in str(request_input)
 
 
+def test_run_data_analyst_agent_extracts_structured_response_text() -> None:
+    provider = FakeProvider()
+    client = FakeOpenAIClient(response=FakeStructuredOpenAIResponse())
+
+    result = run_data_analyst_agent(
+        openai_client=client,
+        provider=provider,
+        question="Summarize the order metadata.",
+    )
+
+    assert result.response_text == "The structured response text is extracted."
+
+
 def test_build_data_analyst_eval_items_and_data_source() -> None:
     provider = FakeProvider()
 
@@ -146,6 +176,24 @@ def test_build_data_analyst_eval_items_and_data_source() -> None:
     assert data_source["model"] == "gpt-4.1-mini"
     assert "Answer this analyst question" in str(data_source["input_messages"])
     assert "Which order columns need better descriptions?" in str(data_source["source"])
+
+
+def test_build_data_analyst_eval_items_rejects_expected_output_count_mismatch() -> None:
+    provider = FakeProvider()
+
+    try:
+        build_data_analyst_eval_items(
+            provider,
+            (
+                "Which order columns need better descriptions?",
+                "Which quality checks are needed?",
+            ),
+            expected_outputs=("Mention CUSTOMER_ID.",),
+        )
+    except ValueError as exc:
+        assert "expected_outputs must match" in str(exc)
+    else:
+        raise AssertionError("Expected expected_outputs count mismatch to raise ValueError.")
 
 
 def test_create_data_analyst_eval_run_calls_openai_evals_api() -> None:

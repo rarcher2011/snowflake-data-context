@@ -8,6 +8,7 @@ from typing import Any, Protocol, Sequence
 
 from .metadata import SnowflakeConnection, TableContext
 from .metadata_analysis import parse_column_description
+from .openai_responses import extract_response_text
 from .sampling import quote_snowflake_identifier_path
 
 
@@ -146,7 +147,7 @@ def _request_description_suggestions(
             },
         ],
     )
-    return _extract_response_text(response)
+    return extract_response_text(response)
 
 
 def _column_payload(raw_column: str) -> dict[str, str | None]:
@@ -185,28 +186,6 @@ def _parse_suggestions(response_text: str) -> tuple[ColumnDescriptionSuggestion,
             )
         )
     return tuple(suggestions)
-
-
-def _extract_response_text(response: object) -> str:
-    output_text = getattr(response, "output_text", None)
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text.strip()
-
-    output = getattr(response, "output", None)
-    if isinstance(output, list):
-        text_parts: list[str] = []
-        for item in output:
-            content = getattr(item, "content", None)
-            if not isinstance(content, list):
-                continue
-            for content_item in content:
-                text = getattr(content_item, "text", None)
-                if isinstance(text, str):
-                    text_parts.append(text)
-        if text_parts:
-            return "\n".join(text_parts).strip()
-
-    return str(response).strip()
 
 
 def _cursor_column_names(cursor: object) -> list[str]:
