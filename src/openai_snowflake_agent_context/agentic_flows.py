@@ -8,6 +8,7 @@ from typing import Any, Protocol, Sequence
 from .agent_harness import WorkItem
 from .agent_orchestrator import AgentOrchestrator, MultiAgentPlan, OrchestratorDecision
 from .metadata import SnowflakeMetadataProvider
+from .openai_responses import extract_response_text
 
 
 class OpenAIResponsesResource(Protocol):
@@ -179,7 +180,7 @@ def run_data_analyst_agent(
     return DataAnalystAgentResult(
         question=question,
         model=model,
-        response_text=_extract_response_text(response),
+        response_text=extract_response_text(response),
         context=context,
     )
 
@@ -195,6 +196,9 @@ def build_data_analyst_eval_items(
     """Build OpenAI eval items grounded in current Snowflake metadata context."""
 
     expected_outputs = expected_outputs or ()
+    if expected_outputs and len(expected_outputs) != len(questions):
+        raise ValueError("expected_outputs must match the number of questions when provided.")
+
     items: list[DataAnalystEvalItem] = []
     for index, question in enumerate(questions, start=1):
         context = build_data_analyst_context(
@@ -332,10 +336,3 @@ def _default_data_analyst_work_items() -> tuple[WorkItem, ...]:
             checked=False,
         ),
     )
-
-
-def _extract_response_text(response: object) -> str:
-    output_text = getattr(response, "output_text", None)
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text.strip()
-    return str(response).strip()
