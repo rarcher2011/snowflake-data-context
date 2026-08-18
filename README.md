@@ -119,6 +119,8 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. Without a backend, the UI uses demo responses so the screen can be tested immediately.
 
+If the dev server exits with `listen EPERM`, allow local network access for the Codex task or terminal session and rerun `npm run dev`. Vite needs permission to bind the local `127.0.0.1:5173` development server.
+
 When the Python FastAPI backend is available, point the UI at it with:
 
 ```bash
