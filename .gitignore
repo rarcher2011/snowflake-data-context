@@ -10,6 +10,9 @@ pytest-of-*/
 dist/
 build/
 *.egg-info/
+node_modules/
+ui/dist/
+ui/.npm-cache/
 .env
 .env.*
 .DS_Store
