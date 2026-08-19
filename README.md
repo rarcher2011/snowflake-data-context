@@ -107,7 +107,33 @@ uv sync --extra chatgpt-plugin
 uv sync --extra aws
 ```
 
-### 2. Configure Snowflake credentials
+### 2. Launch the React UI
+
+The repo includes a small React workspace for checking Snowflake connection setup, choosing a warehouse and schema, and running a quick table-list test before the FastAPI backend is added.
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. Without a backend, the UI uses demo responses so the screen can be tested immediately.
+
+When the Python FastAPI backend is available, point the UI at it with:
+
+```bash
+cd ui
+VITE_API_BASE_URL="http://127.0.0.1:8000" npm run dev
+```
+
+The UI expects these backend routes:
+
+- `GET /api/connection/status`
+- `GET /api/snowflake/warehouses`
+- `GET /api/snowflake/schemas?warehouse=AGENT_WH`
+- `GET /api/snowflake/tables?warehouse=AGENT_WH&database=ANALYTICS&schema=PUBLIC`
+
+### 3. Configure Snowflake credentials
 
 Use Snowflake key-pair authentication for this extension. Do not store Snowflake passwords in this repository or pass a `password` value into the package helpers.
 
@@ -168,7 +194,35 @@ provider = SnowflakeMetadataProvider(connection, config)
 
 If your application already manages Snowflake connections, it can keep doing that. The provider only requires a connection object with `cursor()`. The included helper is for teams that want a standard private-key setup path.
 
-### 3. Run metadata and description analysis
+### 4. Recommended end-to-end agent flow
+
+The most common agent workflow is to connect to Snowflake, create a sampled sandbox table when row-level examples are needed, then run the OpenAI-backed analyst flow against that sampled table.
+
+```python
+from openai import OpenAI
+
+from openai_snowflake_agent_context import run_data_analyst_agent
+
+client = OpenAI()
+
+sample = provider.sample_table(
+    "ANALYTICS.PUBLIC.ORDERS",
+    "ANALYTICS.PUBLIC.ORDERS_AGENT_SAMPLE",
+)
+
+result = run_data_analyst_agent(
+    openai_client=client,
+    provider=provider,
+    question="What should we know before creating an orders reporting mart?",
+    table_names=(sample.sampled_table,),
+)
+
+print(result.response_text)
+```
+
+Use the sampled table as the working table for agent analysis, eval runs, SQL drafting, and long-running harness status. That keeps exploratory work pointed at an explicit sandbox instead of the production source table. For metadata-only questions, skip sampling and pass the original table names or call `provider.analyze_schema_descriptions()`.
+
+### 5. Run metadata and description analysis
 
 Use the provider-level methods when live Snowflake metadata retrieval is available, or use the lower-level helpers with existing table metadata objects:
 
@@ -183,7 +237,7 @@ for column in analysis.columns_needing_improvement:
 
 For local tests or offline analysis, pass `TableContext` objects directly to `analyze_table_metadata_descriptions`.
 
-### 4. Suggest column descriptions from sample records
+### 6. Suggest column descriptions from sample records
 
 When a human explicitly wants row-level examples used as context, the provider can fetch a small random sample, call the OpenAI SDK, and return reviewable column description suggestions:
 
@@ -204,7 +258,7 @@ print(suggestions.column_descriptions)
 
 Review suggested descriptions before applying them through `provider.update_descriptions(...)`.
 
-### 5. Review description updates before applying
+### 7. Review description updates before applying
 
 Description updates are planned first and applied only when explicitly requested:
 
@@ -230,7 +284,7 @@ for statement in result.plan.statements:
 
 Set `apply=True` only after a human has reviewed the generated Snowflake `COMMENT` statements.
 
-### 6. Configure the long-running harness
+### 8. Configure the long-running harness
 
 Create an `agent_harness.toml` file at the repo root:
 
@@ -261,7 +315,7 @@ uv run scripts/start_agent_harness.py
 
 The harness writes `.agent_harness/session_context.md`, which future agents can read before continuing long-running analysis.
 
-### 7. Route work through the orchestrator layer
+### 9. Route work through the orchestrator layer
 
 Use the orchestrator layer after harness startup to decide which specialist agent should handle the next unit of work:
 
@@ -294,7 +348,7 @@ uv run scripts/evaluate_orchestrator.py
 
 See [docs/DATA_ANALYST_AGENT_FLOWS.md](docs/DATA_ANALYST_AGENT_FLOWS.md) for end-to-end data analyst agent flows, including Snowflake private-key connection setup, OpenAI Responses calls, OpenAI eval runs, multi-agent plans, and sample-record description suggestions.
 
-### 8. Serve ChatGPT Actions locally
+### 10. Serve ChatGPT Actions locally
 
 Install the optional server dependencies:
 
