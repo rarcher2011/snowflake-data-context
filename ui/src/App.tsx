@@ -29,23 +29,41 @@ export default function App() {
       setStartupState("loading");
       setMessage("");
       try {
-        const [connectionStatus, warehouseOptions] = await Promise.all([
-          getConnectionStatus(),
-          listWarehouses(),
-        ]);
+        const connectionStatus = await getConnectionStatus();
         if (cancelled) {
           return;
         }
+        setConnection(connectionStatus);
+
+        let warehouseOptions: string[] = [];
+        try {
+          warehouseOptions = await listWarehouses();
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          setWarehouses([]);
+          setSchemas([]);
+          setSelectedWarehouse("");
+          setSelectedSchema(connectionStatus.schema === "Not selected" ? "" : connectionStatus.schema);
+          setStartupState("ready");
+          setMessage(error instanceof Error ? error.message : "Unable to load warehouses.");
+          return;
+        }
+
         const initialWarehouse = warehouseOptions[0] ?? "";
         const schemaOptions = initialWarehouse ? await listSchemas(initialWarehouse) : [];
         if (cancelled) {
           return;
         }
-        setConnection(connectionStatus);
         setWarehouses(warehouseOptions);
         setSelectedWarehouse(initialWarehouse);
         setSchemas(schemaOptions);
-        setSelectedSchema(connectionStatus.schema || schemaOptions[0] || "");
+        setSelectedSchema(
+          connectionStatus.schema === "Not selected"
+            ? schemaOptions[0] || ""
+            : connectionStatus.schema || schemaOptions[0] || "",
+        );
         setStartupState("ready");
       } catch (error) {
         if (cancelled) {
@@ -102,7 +120,9 @@ export default function App() {
     if (!connection) {
       return "Checking";
     }
-    return connection.configured && connection.privateKeyConfigured ? "Ready" : "Needs setup";
+    return connection.configured && connection.privateKeyConnectionWorking
+      ? "Ready"
+      : "Needs setup";
   }, [connection]);
 
   async function runTableList() {
@@ -147,17 +167,29 @@ export default function App() {
 
           <dl className="connection-list">
             <div>
-              <dt>User</dt>
-              <dd>{connection?.user ?? "-"}</dd>
+              <dt>Current user</dt>
+              <dd>{connection?.currentUser ?? "-"}</dd>
             </div>
             <div>
-              <dt>Database</dt>
+              <dt>Database selected</dt>
               <dd>{connection?.database ?? "-"}</dd>
             </div>
             <div>
-              <dt>Private key</dt>
-              <dd>{connection?.privateKeyConfigured ? "Configured" : "Missing"}</dd>
+              <dt>Private key connection</dt>
+              <dd>
+                {connection?.privateKeyConnectionWorking
+                  ? "Working"
+                  : connection?.privateKeyConfigured
+                    ? "Configured, not connected"
+                    : "Missing"}
+              </dd>
             </div>
+            {connection?.error ? (
+              <div>
+                <dt>Status</dt>
+                <dd>{connection.error}</dd>
+              </div>
+            ) : null}
           </dl>
         </div>
 

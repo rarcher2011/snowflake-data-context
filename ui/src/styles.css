@@ -129,7 +129,7 @@ h2 {
 
 .connection-list div {
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-columns: 118px minmax(0, 1fr);
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid #edf1f6;

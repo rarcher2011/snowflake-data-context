@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Protocol, cast
+from collections.abc import Callable
+from typing import Any, Protocol, cast
 
 from .config import SnowflakeContextConfig
 from .connection import connect_with_private_key
+
+NOT_CONFIGURED = "Not configured"
+NOT_SELECTED = "Not selected"
 
 
 class WarehouseCursor(Protocol):
@@ -40,6 +44,63 @@ def list_snowflake_warehouses(connection_factory: ConnectionFactory) -> list[str
         cursor = connection.cursor()
         cursor.execute("SHOW WAREHOUSES")
         return [_warehouse_name_from_row(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+
+def build_connection_status(
+    environ: dict[str, str] | None = None,
+    connection_factory: ConnectionFactory | None = None,
+) -> dict[str, object]:
+    """Return UI-ready Snowflake connection status from environment configuration."""
+
+    environ = environ or dict(os.environ)
+    missing = _missing_required_env(environ)
+    private_key_configured = bool(environ.get("SNOWFLAKE_PRIVATE_KEY_PATH"))
+    status: dict[str, object] = {
+        "configured": not missing,
+        "account": environ.get("SNOWFLAKE_ACCOUNT") or NOT_CONFIGURED,
+        "configuredUser": environ.get("SNOWFLAKE_USER") or NOT_CONFIGURED,
+        "currentUser": environ.get("SNOWFLAKE_USER") or NOT_CONFIGURED,
+        "database": environ.get("SNOWFLAKE_DATABASE") or NOT_SELECTED,
+        "schema": environ.get("SNOWFLAKE_SCHEMA") or NOT_SELECTED,
+        "privateKeyConfigured": private_key_configured,
+        "privateKeyConnectionWorking": False,
+        "error": None,
+    }
+    if missing:
+        status["error"] = f"Missing required environment variables: {', '.join(missing)}"
+        return status
+
+    try:
+        factory = connection_factory or create_env_connection_factory(environ)
+        identity = fetch_snowflake_identity(factory)
+    except Exception as exc:  # noqa: BLE001 - surface connector failures in UI status
+        status["error"] = str(exc)
+        return status
+
+    status["currentUser"] = identity["current_user"]
+    status["database"] = identity["current_database"] or environ.get("SNOWFLAKE_DATABASE") or NOT_SELECTED
+    status["privateKeyConnectionWorking"] = True
+    status["error"] = None
+    return status
+
+
+def fetch_snowflake_identity(connection_factory: ConnectionFactory) -> dict[str, str | None]:
+    """Return current Snowflake user and database for the UI connection panel."""
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT CURRENT_USER(), CURRENT_DATABASE()")
+        rows = cursor.fetchall()
+        if not rows:
+            raise ValueError("Snowflake did not return connection identity.")
+        row = rows[0]
+        return {
+            "current_user": _row_field(row, 0, "CURRENT_USER()") or NOT_CONFIGURED,
+            "current_database": _row_field(row, 1, "CURRENT_DATABASE()"),
+        }
     finally:
         connection.close()
 
@@ -100,8 +161,12 @@ def create_ui_app(
         try:
             factory = connection_factory or create_env_connection_factory()
             return list_snowflake_warehouses(factory)
-        except (OSError, RuntimeError, ValueError) as exc:
+        except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/connection/status")
+    def connection_status() -> dict[str, object]:
+        return build_connection_status(connection_factory=connection_factory)
 
     return app
 
@@ -133,6 +198,19 @@ def _required_env(environ: dict[str, str], name: str) -> str:
     return value
 
 
+def _missing_required_env(environ: dict[str, str]) -> list[str]:
+    return [
+        name
+        for name in (
+            "SNOWFLAKE_ACCOUNT",
+            "SNOWFLAKE_USER",
+            "SNOWFLAKE_WAREHOUSE",
+            "SNOWFLAKE_PRIVATE_KEY_PATH",
+        )
+        if not environ.get(name)
+    ]
+
+
 def _warehouse_name_from_row(row: object) -> str:
     if isinstance(row, dict):
         value = row.get("name", row.get("NAME"))
@@ -145,6 +223,19 @@ def _warehouse_name_from_row(row: object) -> str:
     if name is not None:
         return str(name)
     raise ValueError("Warehouse row did not include a name field.")
+
+
+def _row_field(row: object, index: int, key: str) -> str | None:
+    if isinstance(row, dict):
+        value = row.get(key, row.get(key.lower()))
+    elif isinstance(row, (tuple, list)) and len(row) > index:
+        value = row[index]
+    else:
+        value = getattr(row, key, getattr(row, key.lower(), None))
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 if __name__ == "__main__":
