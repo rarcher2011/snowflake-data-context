@@ -1,10 +1,13 @@
 export type ConnectionStatus = {
   configured: boolean;
   account: string;
-  user: string;
+  configuredUser: string;
+  currentUser: string;
   database: string;
   schema: string;
   privateKeyConfigured: boolean;
+  privateKeyConnectionWorking: boolean;
+  error: string | null;
 };
 
 export type TableSummary = {
@@ -22,15 +25,6 @@ export type TableListRequest = {
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
-
-const demoConnection: ConnectionStatus = {
-  configured: true,
-  account: "demo-account",
-  user: "agent_user",
-  database: "ANALYTICS",
-  schema: "PUBLIC",
-  privateKeyConfigured: true,
-};
 
 const demoSchemas = ["PUBLIC", "CORE", "MARTS", "SANDBOX"];
 const demoTables: TableSummary[] = [
@@ -58,7 +52,7 @@ const demoTables: TableSummary[] = [
 ];
 
 export async function getConnectionStatus(): Promise<ConnectionStatus> {
-  return getJson<ConnectionStatus>("/api/connection/status", demoConnection);
+  return getRequiredJson<ConnectionStatus>("/api/connection/status");
 }
 
 export async function listWarehouses(): Promise<string[]> {
