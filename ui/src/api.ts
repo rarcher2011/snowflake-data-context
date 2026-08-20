@@ -21,7 +21,7 @@ export type TableListRequest = {
   schema: string;
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
 
 const demoConnection: ConnectionStatus = {
   configured: true,
@@ -32,7 +32,6 @@ const demoConnection: ConnectionStatus = {
   privateKeyConfigured: true,
 };
 
-const demoWarehouses = ["AGENT_WH", "ANALYST_WH", "TRANSFORM_WH"];
 const demoSchemas = ["PUBLIC", "CORE", "MARTS", "SANDBOX"];
 const demoTables: TableSummary[] = [
   {
@@ -63,7 +62,7 @@ export async function getConnectionStatus(): Promise<ConnectionStatus> {
 }
 
 export async function listWarehouses(): Promise<string[]> {
-  return getJson<string[]>("/api/snowflake/warehouses", demoWarehouses);
+  return getRequiredJson<string[]>("/api/snowflake/warehouses");
 }
 
 export async function listSchemas(warehouse: string): Promise<string[]> {
@@ -81,12 +80,26 @@ export async function listTables(request: TableListRequest): Promise<TableSummar
 }
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {
-  if (!apiBaseUrl) {
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`);
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (apiBaseUrl) {
+      throw error;
+    }
     await pause();
     return fallback;
   }
+}
 
-  const response = await fetch(`${apiBaseUrl}${path}`);
+async function getRequiredJson<T>(path: string): Promise<T> {
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Request failed with ${response.status}`);
   }

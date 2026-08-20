@@ -109,15 +109,20 @@ uv sync --extra aws
 
 ### 2. Launch the React UI
 
-The repo includes a small React workspace for checking Snowflake connection setup, choosing a warehouse and schema, and running a quick table-list test before the FastAPI backend is added.
+The repo includes a small React workspace for checking Snowflake connection setup, choosing a warehouse and schema, and running a quick table-list test. The launch command starts both the React dev server and a starter FastAPI backend.
 
 ```bash
+uv sync --extra chatgpt-plugin
 cd ui
 npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Without a backend, the UI uses demo responses so the screen can be tested immediately.
+Open `http://127.0.0.1:5173`. The starter FastAPI backend runs at `http://127.0.0.1:8000` and exposes one real Snowflake endpoint:
+
+- `GET /api/snowflake/warehouses`
+
+The warehouse selector calls that endpoint. The backend uses the `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_PRIVATE_KEY_PATH`, and optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_DATABASE`, and `SNOWFLAKE_SCHEMA` environment variables to connect to Snowflake with private-key authentication and run `SHOW WAREHOUSES`. Other UI calls still use demo fallback data until the fuller FastAPI backend is added.
 
 If the dev server exits with `listen EPERM`, allow local network access for the Codex task or terminal session and rerun `npm run dev`. Vite needs permission to bind the local `127.0.0.1:5173` development server.
 
@@ -128,10 +133,9 @@ cd ui
 VITE_API_BASE_URL="http://127.0.0.1:8000" npm run dev
 ```
 
-The UI expects these backend routes:
+The future backend should add these routes:
 
 - `GET /api/connection/status`
-- `GET /api/snowflake/warehouses`
 - `GET /api/snowflake/schemas?warehouse=AGENT_WH`
 - `GET /api/snowflake/tables?warehouse=AGENT_WH&database=ANALYTICS&schema=PUBLIC`
 

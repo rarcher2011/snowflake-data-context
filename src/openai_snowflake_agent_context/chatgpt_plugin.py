@@ -227,7 +227,7 @@ def create_app(
     """Create an optional FastAPI app exposing ChatGPT-callable actions."""
 
     try:
-        from fastapi import FastAPI, HTTPException  # type: ignore[import-not-found]
+        from fastapi import FastAPI, HTTPException
     except ImportError as exc:  # pragma: no cover - exercised only without optional deps
         raise RuntimeError(
             "Install the chatgpt-plugin extra to serve the action app: "
@@ -236,11 +236,11 @@ def create_app(
 
     app = FastAPI(title="OpenAI Snowflake Agent Context Actions")
 
-    @app.post("/metadata/description-analysis")  # type: ignore[untyped-decorator]
+    @app.post("/metadata/description-analysis")
     def analyze_metadata_descriptions(payload: MetadataAnalysisRequest) -> dict[str, Any]:
         return execute_metadata_description_analysis(payload)
 
-    @app.post("/metadata/sample-table")  # type: ignore[untyped-decorator]
+    @app.post("/metadata/sample-table")
     def sample_snowflake_table(payload: SampleTableRequest) -> dict[str, Any]:
         if snowflake_connection is None:
             raise HTTPException(
@@ -249,15 +249,15 @@ def create_app(
             )
         return execute_sample_table(payload, snowflake_connection)
 
-    @app.post("/harness/progress-updates/format")  # type: ignore[untyped-decorator]
+    @app.post("/harness/progress-updates/format")
     def format_harness_progress_update(payload: ProgressUpdateRequest) -> dict[str, str]:
         return execute_format_progress_update(payload)
 
-    @app.get("/openapi.json")  # type: ignore[untyped-decorator]
+    @app.get("/openapi.json")
     def openapi_json() -> dict[str, Any]:
         return build_openapi_schema(server_url)
 
-    @app.get("/.well-known/ai-plugin.json")  # type: ignore[untyped-decorator]
+    @app.get("/.well-known/ai-plugin.json")
     def ai_plugin_manifest() -> dict[str, Any]:
         return build_ai_plugin_manifest(f"{server_url.rstrip('/')}/openapi.json")
 
