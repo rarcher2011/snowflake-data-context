@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   ConnectionStatus,
+  TableMetadata,
   TableSummary,
+  getTableMetadata,
   getConnectionStatus,
+  listDatabases,
   listSchemas,
   listTables,
   listWarehouses,
@@ -14,12 +17,16 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 export default function App() {
   const [connection, setConnection] = useState<ConnectionStatus | null>(null);
   const [warehouses, setWarehouses] = useState<string[]>([]);
+  const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState("");
+  const [selectedDatabase, setSelectedDatabase] = useState("");
   const [selectedSchema, setSelectedSchema] = useState("");
   const [tables, setTables] = useState<TableSummary[]>([]);
+  const [selectedMetadata, setSelectedMetadata] = useState<TableMetadata | null>(null);
   const [startupState, setStartupState] = useState<LoadState>("idle");
   const [tableState, setTableState] = useState<LoadState>("idle");
+  const [metadataState, setMetadataState] = useState<LoadState>("idle");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -43,21 +50,31 @@ export default function App() {
             return;
           }
           setWarehouses([]);
+          setDatabases([]);
           setSchemas([]);
           setSelectedWarehouse("");
+          setSelectedDatabase(connectionStatus.database === "Not selected" ? "" : connectionStatus.database);
           setSelectedSchema(connectionStatus.schema === "Not selected" ? "" : connectionStatus.schema);
           setStartupState("ready");
           setMessage(error instanceof Error ? error.message : "Unable to load warehouses.");
           return;
         }
 
+        const databaseOptions = await listDatabases();
         const initialWarehouse = warehouseOptions[0] ?? "";
-        const schemaOptions = initialWarehouse ? await listSchemas(initialWarehouse) : [];
+        const initialDatabase =
+          connectionStatus.database !== "Not selected" && databaseOptions.includes(connectionStatus.database)
+            ? connectionStatus.database
+            : databaseOptions[0] ?? "";
+        const schemaOptions =
+          initialWarehouse && initialDatabase ? await listSchemas(initialWarehouse, initialDatabase) : [];
         if (cancelled) {
           return;
         }
         setWarehouses(warehouseOptions);
+        setDatabases(databaseOptions);
         setSelectedWarehouse(initialWarehouse);
+        setSelectedDatabase(initialDatabase);
         setSchemas(schemaOptions);
         setSelectedSchema(
           connectionStatus.schema === "Not selected"
@@ -85,13 +102,13 @@ export default function App() {
     let cancelled = false;
 
     async function refreshSchemas() {
-      if (!selectedWarehouse) {
+      if (!selectedWarehouse || !selectedDatabase) {
         setSchemas([]);
         setSelectedSchema("");
         return;
       }
       try {
-        const schemaOptions = await listSchemas(selectedWarehouse);
+        const schemaOptions = await listSchemas(selectedWarehouse, selectedDatabase);
         if (cancelled) {
           return;
         }
@@ -114,19 +131,10 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWarehouse]);
-
-  const connectionLabel = useMemo(() => {
-    if (!connection) {
-      return "Checking";
-    }
-    return connection.configured && connection.privateKeyConnectionWorking
-      ? "Ready"
-      : "Needs setup";
-  }, [connection]);
+  }, [selectedWarehouse, selectedDatabase]);
 
   async function runTableList() {
-    if (!connection || !selectedWarehouse || !selectedSchema) {
+    if (!connection || !selectedWarehouse || !selectedDatabase || !selectedSchema) {
       return;
     }
     setTableState("loading");
@@ -134,14 +142,37 @@ export default function App() {
     try {
       const tableResults = await listTables({
         warehouse: selectedWarehouse,
-        database: connection.database,
+        database: selectedDatabase,
         schema: selectedSchema,
       });
       setTables(tableResults);
+      setSelectedMetadata(null);
+      setMetadataState("idle");
       setTableState("ready");
     } catch (error) {
       setTableState("error");
       setMessage(error instanceof Error ? error.message : "Unable to list tables.");
+    }
+  }
+
+  async function selectTableMetadata(table: TableSummary) {
+    if (!selectedWarehouse || !selectedDatabase || !selectedSchema || !table.name) {
+      return;
+    }
+    setMetadataState("loading");
+    setMessage("");
+    try {
+      const metadata = await getTableMetadata({
+        warehouse: selectedWarehouse,
+        database: selectedDatabase,
+        schema: selectedSchema,
+        table: table.name,
+      });
+      setSelectedMetadata(metadata);
+      setMetadataState("ready");
+    } catch (error) {
+      setMetadataState("error");
+      setMessage(error instanceof Error ? error.message : "Unable to load table metadata.");
     }
   }
 
@@ -151,10 +182,6 @@ export default function App() {
         <div>
           <p className="eyebrow">Snowflake Data Context</p>
           <h1>Agent Workspace</h1>
-        </div>
-        <div className={`status-pill ${connectionLabel === "Ready" ? "is-ready" : ""}`}>
-          <span aria-hidden="true" />
-          {connectionLabel}
         </div>
       </header>
 
@@ -172,7 +199,7 @@ export default function App() {
             </div>
             <div>
               <dt>Database selected</dt>
-              <dd>{connection?.database ?? "-"}</dd>
+              <dd>{selectedDatabase || connection?.database || "-"}</dd>
             </div>
             <div>
               <dt>Private key connection</dt>
@@ -196,7 +223,7 @@ export default function App() {
         <div className="panel controls-panel">
           <div className="panel-heading">
             <h2>Scope</h2>
-            <p>Warehouse and schema</p>
+            <p>Warehouse, database, and schema</p>
           </div>
 
           <label>
@@ -209,6 +236,21 @@ export default function App() {
               {warehouses.map((warehouse) => (
                 <option key={warehouse} value={warehouse}>
                   {warehouse}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Database</span>
+            <select
+              value={selectedDatabase}
+              onChange={(event) => setSelectedDatabase(event.target.value)}
+              disabled={startupState === "loading" || databases.length === 0}
+            >
+              {databases.map((database) => (
+                <option key={database} value={database}>
+                  {database}
                 </option>
               ))}
             </select>
@@ -252,6 +294,7 @@ export default function App() {
               <span role="columnheader">Name</span>
               <span role="columnheader">Type</span>
               <span role="columnheader">Descriptions</span>
+              <span role="columnheader">Metadata</span>
             </div>
             {tables.map((table) => (
               <div className="table-row" role="row" key={`${table.database}.${table.schema}.${table.name}`}>
@@ -259,6 +302,16 @@ export default function App() {
                 <span role="cell">{table.type}</span>
                 <span role="cell" className={`quality quality-${table.descriptionStatus}`}>
                   {table.descriptionStatus}
+                </span>
+                <span role="cell">
+                  <button
+                    className="metadata-action"
+                    type="button"
+                    onClick={() => void selectTableMetadata(table)}
+                    disabled={metadataState === "loading"}
+                  >
+                    Metadata
+                  </button>
                 </span>
               </div>
             ))}
@@ -268,6 +321,43 @@ export default function App() {
               </div>
             ) : null}
           </div>
+        </div>
+
+        <div className="panel metadata-panel">
+          <div className="panel-heading">
+            <h2>Metadata</h2>
+            <p>
+              {selectedMetadata
+                ? `${selectedMetadata.database}.${selectedMetadata.schema}.${selectedMetadata.table}`
+                : "Selected table"}
+            </p>
+          </div>
+
+          {metadataState === "loading" ? <div className="empty-state">Loading metadata</div> : null}
+
+          {metadataState !== "loading" && selectedMetadata ? (
+            <div className="metadata-list" role="table" aria-label="Selected table metadata">
+              <div className="metadata-row metadata-header" role="row">
+                <span role="columnheader">Field</span>
+                <span role="columnheader">Schema</span>
+                <span role="columnheader">Description</span>
+              </div>
+              {selectedMetadata.columns.map((column) => (
+                <div className="metadata-row" role="row" key={column.name}>
+                  <span role="cell">{column.name}</span>
+                  <span role="cell">
+                    {column.dataType}
+                    {column.nullable ? ` · ${column.nullable === "YES" ? "nullable" : "required"}` : ""}
+                  </span>
+                  <span role="cell">{column.description || "No description"}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {metadataState !== "loading" && !selectedMetadata ? (
+            <div className="empty-state">Select metadata from a table</div>
+          ) : null}
         </div>
       </section>
     </main>
