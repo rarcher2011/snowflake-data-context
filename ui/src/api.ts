@@ -18,38 +18,31 @@ export type TableSummary = {
   descriptionStatus: "strong" | "weak" | "missing";
 };
 
+export type ColumnMetadata = {
+  name: string;
+  dataType: string;
+  description: string;
+  nullable: string;
+};
+
+export type TableMetadata = {
+  database: string;
+  schema: string;
+  table: string;
+  columns: ColumnMetadata[];
+};
+
 export type TableListRequest = {
   warehouse: string;
   database: string;
   schema: string;
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
+export type TableMetadataRequest = TableListRequest & {
+  table: string;
+};
 
-const demoSchemas = ["PUBLIC", "CORE", "MARTS", "SANDBOX"];
-const demoTables: TableSummary[] = [
-  {
-    database: "ANALYTICS",
-    schema: "PUBLIC",
-    name: "ORDERS",
-    type: "BASE TABLE",
-    descriptionStatus: "weak",
-  },
-  {
-    database: "ANALYTICS",
-    schema: "PUBLIC",
-    name: "CUSTOMERS",
-    type: "BASE TABLE",
-    descriptionStatus: "strong",
-  },
-  {
-    database: "ANALYTICS",
-    schema: "PUBLIC",
-    name: "ORDER_REPORTING_SAMPLE",
-    type: "BASE TABLE",
-    descriptionStatus: "missing",
-  },
-];
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
 
 export async function getConnectionStatus(): Promise<ConnectionStatus> {
   return getRequiredJson<ConnectionStatus>("/api/connection/status");
@@ -59,9 +52,13 @@ export async function listWarehouses(): Promise<string[]> {
   return getRequiredJson<string[]>("/api/snowflake/warehouses");
 }
 
-export async function listSchemas(warehouse: string): Promise<string[]> {
-  const search = new URLSearchParams({ warehouse });
-  return getJson<string[]>(`/api/snowflake/schemas?${search.toString()}`, demoSchemas);
+export async function listDatabases(): Promise<string[]> {
+  return getRequiredJson<string[]>("/api/snowflake/databases");
+}
+
+export async function listSchemas(warehouse: string, database: string): Promise<string[]> {
+  const search = new URLSearchParams({ warehouse, database });
+  return getRequiredJson<string[]>(`/api/snowflake/schemas?${search.toString()}`);
 }
 
 export async function listTables(request: TableListRequest): Promise<TableSummary[]> {
@@ -70,25 +67,17 @@ export async function listTables(request: TableListRequest): Promise<TableSummar
     database: request.database,
     schema: request.schema,
   });
-  return getJson<TableSummary[]>(`/api/snowflake/tables?${search.toString()}`, demoTables);
+  return getRequiredJson<TableSummary[]>(`/api/snowflake/tables?${search.toString()}`);
 }
 
-async function getJson<T>(path: string, fallback: T): Promise<T> {
-  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
-
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Request failed with ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    if (apiBaseUrl) {
-      throw error;
-    }
-    await pause();
-    return fallback;
-  }
+export async function getTableMetadata(request: TableMetadataRequest): Promise<TableMetadata> {
+  const search = new URLSearchParams({
+    warehouse: request.warehouse,
+    database: request.database,
+    schema: request.schema,
+    table: request.table,
+  });
+  return getRequiredJson<TableMetadata>(`/api/snowflake/table-metadata?${search.toString()}`);
 }
 
 async function getRequiredJson<T>(path: string): Promise<T> {
@@ -98,8 +87,4 @@ async function getRequiredJson<T>(path: string): Promise<T> {
     throw new Error(`Request failed with ${response.status}`);
   }
   return (await response.json()) as T;
-}
-
-function pause(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, 220));
 }

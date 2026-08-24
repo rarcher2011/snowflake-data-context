@@ -109,7 +109,7 @@ uv sync --extra aws
 
 ### 2. Launch the React UI
 
-The repo includes a small React workspace for checking Snowflake connection setup, choosing a warehouse and schema, and running a quick table-list test. The launch command starts both the React dev server and a starter FastAPI backend.
+The repo includes a small React workspace for checking Snowflake connection setup, choosing a warehouse, database, and schema, and running a quick table-list test. The launch command starts both the React dev server and a starter FastAPI backend.
 
 ```bash
 uv sync --extra chatgpt-plugin
@@ -118,11 +118,16 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The starter FastAPI backend runs at `http://127.0.0.1:8000` and exposes one real Snowflake endpoint:
+Open `http://127.0.0.1:5173`. The starter FastAPI backend runs at `http://127.0.0.1:8000` and exposes these Snowflake-backed endpoints:
 
+- `GET /api/connection/status`
 - `GET /api/snowflake/warehouses`
+- `GET /api/snowflake/databases`
+- `GET /api/snowflake/schemas?warehouse=AGENT_WH&database=ANALYTICS`
+- `GET /api/snowflake/tables?warehouse=COMPUTE_WH&database=ANALYTICS&schema=SAMPLE_DATA`
+- `GET /api/snowflake/table-metadata?warehouse=COMPUTE_WH&database=ANALYTICS&schema=SAMPLE_DATA&table=ORDERS`
 
-The warehouse selector calls that endpoint. The backend uses the `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_PRIVATE_KEY_PATH`, and optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_DATABASE`, and `SNOWFLAKE_SCHEMA` environment variables to connect to Snowflake with private-key authentication and run `SHOW WAREHOUSES`. Other UI calls still use demo fallback data until the fuller FastAPI backend is added.
+The connection panel, warehouse selector, database selector, schema selector, table-list test, and table metadata panel call those endpoints. The backend uses the `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_PRIVATE_KEY_PATH`, and optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_DATABASE`, and `SNOWFLAKE_SCHEMA` environment variables to connect to Snowflake with private-key authentication and run `CURRENT_USER`, `SHOW WAREHOUSES`, `SHOW DATABASES`, `SHOW SCHEMAS`, `SHOW TABLES`, and `INFORMATION_SCHEMA.COLUMNS` queries.
 
 If the dev server exits with `listen EPERM`, allow local network access for the Codex task or terminal session and rerun `npm run dev`. Vite needs permission to bind the local `127.0.0.1:5173` development server.
 
@@ -133,11 +138,7 @@ cd ui
 VITE_API_BASE_URL="http://127.0.0.1:8000" npm run dev
 ```
 
-The future backend should add these routes:
-
-- `GET /api/connection/status`
-- `GET /api/snowflake/schemas?warehouse=AGENT_WH`
-- `GET /api/snowflake/tables?warehouse=AGENT_WH&database=ANALYTICS&schema=PUBLIC`
+Additional backend routes can build from this same connection pattern as agentic workflows are added.
 
 ### 3. Configure Snowflake credentials
 

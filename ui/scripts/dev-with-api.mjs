@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 const repoRoot = new URL("../..", import.meta.url);
 const uiRoot = new URL("..", import.meta.url);
 const apiHealthUrl = "http://127.0.0.1:8000/openapi.json";
+const requiredApiPaths = ["/api/snowflake/databases", "/api/snowflake/table-metadata"];
 const children = [];
 let shuttingDown = false;
 
@@ -60,9 +61,23 @@ async function waitForApi() {
     try {
       const response = await fetch(apiHealthUrl);
       if (response.ok) {
-        return;
+        const openApi = await response.json();
+        const missingPaths = requiredApiPaths.filter((path) => !openApi.paths?.[path]);
+        if (missingPaths.length === 0) {
+          return;
+        }
+        throw new Error(
+          `API at ${apiHealthUrl} is missing ${missingPaths.join(", ")}. ` +
+            "Stop the old backend process on port 8000 and rerun npm run dev.",
+        );
       }
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        requiredApiPaths.some((path) => error.message.includes(path))
+      ) {
+        throw error;
+      }
       // The API process is still starting.
     }
     await new Promise((resolve) => setTimeout(resolve, 500));

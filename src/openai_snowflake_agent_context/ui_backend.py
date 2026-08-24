@@ -48,6 +48,114 @@ def list_snowflake_warehouses(connection_factory: ConnectionFactory) -> list[str
         connection.close()
 
 
+def list_snowflake_databases(connection_factory: ConnectionFactory) -> list[str]:
+    """Return database names from Snowflake using `SHOW DATABASES`."""
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SHOW DATABASES")
+        return [_database_name_from_row(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+
+def list_snowflake_schemas(
+    connection_factory: ConnectionFactory,
+    *,
+    warehouse: str | None = None,
+    database: str | None = None,
+) -> list[str]:
+    """Return schema names from Snowflake using `SHOW SCHEMAS`."""
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(warehouse)}")
+        if database:
+            cursor.execute(f"SHOW SCHEMAS IN DATABASE {_quote_snowflake_identifier(database)}")
+        else:
+            cursor.execute("SHOW SCHEMAS")
+        return [_schema_name_from_row(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+
+def list_snowflake_tables(
+    connection_factory: ConnectionFactory,
+    *,
+    warehouse: str | None = None,
+    database: str | None = None,
+    schema: str | None = None,
+) -> list[dict[str, str]]:
+    """Return table summaries from Snowflake using `SHOW TABLES`."""
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(warehouse)}")
+
+        resolved_database = _selected_value(database)
+        resolved_schema = _selected_value(schema)
+        if resolved_schema and not resolved_database:
+            resolved_database = _current_database(cursor)
+            if not resolved_database:
+                raise ValueError(
+                    "A database must be selected or configured before listing schema tables."
+                )
+
+        if resolved_database and resolved_schema:
+            cursor.execute(
+                "SHOW TABLES IN SCHEMA "
+                f"{_quote_snowflake_identifier(resolved_database)}."
+                f"{_quote_snowflake_identifier(resolved_schema)}"
+            )
+        elif resolved_database:
+            cursor.execute(f"SHOW TABLES IN DATABASE {_quote_snowflake_identifier(resolved_database)}")
+        else:
+            cursor.execute("SHOW TABLES")
+
+        return [_table_summary_from_row(row, resolved_database, resolved_schema) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+
+def describe_snowflake_table(
+    connection_factory: ConnectionFactory,
+    *,
+    warehouse: str | None = None,
+    database: str,
+    schema: str,
+    table: str,
+) -> dict[str, object]:
+    """Return column metadata for a selected Snowflake table."""
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(warehouse)}")
+
+        cursor.execute(
+            "SELECT COLUMN_NAME, DATA_TYPE, COMMENT, IS_NULLABLE, ORDINAL_POSITION "
+            f"FROM {_quote_snowflake_identifier(database)}.INFORMATION_SCHEMA.COLUMNS "
+            f"WHERE UPPER(TABLE_SCHEMA) = UPPER({_quote_snowflake_literal(schema)}) "
+            f"AND UPPER(TABLE_NAME) = UPPER({_quote_snowflake_literal(table)}) "
+            "ORDER BY ORDINAL_POSITION"
+        )
+        columns = [_column_metadata_from_row(row) for row in cursor.fetchall()]
+        return {
+            "database": database,
+            "schema": schema,
+            "table": table,
+            "columns": columns,
+        }
+    finally:
+        connection.close()
+
+
 def build_connection_status(
     environ: dict[str, str] | None = None,
     connection_factory: ConnectionFactory | None = None,
@@ -164,6 +272,69 @@ def create_ui_app(
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.get("/api/snowflake/databases")
+    def databases() -> list[str]:
+        try:
+            factory = connection_factory or create_env_connection_factory()
+            return list_snowflake_databases(factory)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/snowflake/schemas")
+    def schemas(warehouse: str | None = None, database: str | None = None) -> list[str]:
+        try:
+            environ = dict(os.environ)
+            factory = connection_factory or create_env_connection_factory(environ)
+            return list_snowflake_schemas(
+                factory,
+                warehouse=warehouse,
+                database=_selected_value(database) or environ.get("SNOWFLAKE_DATABASE"),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/snowflake/tables")
+    def tables(
+        warehouse: str | None = None,
+        database: str | None = None,
+        schema: str | None = None,
+    ) -> list[dict[str, str]]:
+        try:
+            environ = dict(os.environ)
+            factory = connection_factory or create_env_connection_factory(environ)
+            return list_snowflake_tables(
+                factory,
+                warehouse=warehouse,
+                database=_selected_value(database) or environ.get("SNOWFLAKE_DATABASE"),
+                schema=schema,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/snowflake/table-metadata")
+    def table_metadata(
+        warehouse: str | None = None,
+        database: str | None = None,
+        schema: str | None = None,
+        table: str | None = None,
+    ) -> dict[str, object]:
+        try:
+            environ = dict(os.environ)
+            resolved_database = _selected_value(database) or environ.get("SNOWFLAKE_DATABASE")
+            resolved_schema = _selected_value(schema) or environ.get("SNOWFLAKE_SCHEMA")
+            if not resolved_database or not resolved_schema or not table:
+                raise ValueError("Database, schema, and table are required to fetch table metadata.")
+            factory = connection_factory or create_env_connection_factory(environ)
+            return describe_snowflake_table(
+                factory,
+                warehouse=warehouse,
+                database=resolved_database,
+                schema=resolved_schema,
+                table=table,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     @app.get("/api/connection/status")
     def connection_status() -> dict[str, object]:
         return build_connection_status(connection_factory=connection_factory)
@@ -225,17 +396,142 @@ def _warehouse_name_from_row(row: object) -> str:
     raise ValueError("Warehouse row did not include a name field.")
 
 
-def _row_field(row: object, index: int, key: str) -> str | None:
+def _database_name_from_row(row: object) -> str:
     if isinstance(row, dict):
-        value = row.get(key, row.get(key.lower()))
+        value = row.get("name", row.get("NAME"))
+        if value is None:
+            raise ValueError("Database row did not include a name field.")
+        return str(value)
+    if isinstance(row, (tuple, list)) and len(row) > 1:
+        return str(row[1])
+    name = getattr(row, "name", None)
+    if name is not None:
+        return str(name)
+    raise ValueError("Database row did not include a name field.")
+
+
+def _schema_name_from_row(row: object) -> str:
+    if isinstance(row, dict):
+        value = row.get("name", row.get("NAME"))
+        if value is None:
+            raise ValueError("Schema row did not include a name field.")
+        return str(value)
+    if isinstance(row, (tuple, list)) and len(row) > 1:
+        return str(row[1])
+    name = getattr(row, "name", None)
+    if name is not None:
+        return str(name)
+    raise ValueError("Schema row did not include a name field.")
+
+
+def _table_summary_from_row(
+    row: object,
+    fallback_database: str | None,
+    fallback_schema: str | None,
+) -> dict[str, str]:
+    name = _table_row_value(row, "name", "NAME", 1)
+    database = _table_row_value(row, "database_name", "DATABASE_NAME", 2) or fallback_database or ""
+    schema = _table_row_value(row, "schema_name", "SCHEMA_NAME", 3) or fallback_schema or ""
+    kind = _table_row_value(row, "kind", "KIND", 4) or "BASE TABLE"
+    comment = _table_row_value(row, "comment", "COMMENT", 5)
+    return {
+        "database": database,
+        "schema": schema,
+        "name": name or "",
+        "type": _normalize_table_kind(kind),
+        "descriptionStatus": "strong" if comment else "missing",
+    }
+
+
+def _column_metadata_from_row(row: object) -> dict[str, str]:
+    description = _row_field(row, 2, "COMMENT") or ""
+    return {
+        "name": _row_field(row, 0, "COLUMN_NAME") or "",
+        "dataType": _row_field(row, 1, "DATA_TYPE") or "",
+        "description": description,
+        "nullable": _normalize_nullable(_row_field(row, 3, "IS_NULLABLE")),
+    }
+
+
+def _current_database(cursor: WarehouseCursor) -> str | None:
+    cursor.execute("SELECT CURRENT_DATABASE()")
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+    return _row_field(rows[0], 0, "CURRENT_DATABASE()")
+
+
+def _table_row_value(row: object, lower_key: str, upper_key: str, index: int) -> str | None:
+    if isinstance(row, dict):
+        value = row.get(lower_key, row.get(upper_key))
     elif isinstance(row, (tuple, list)) and len(row) > index:
         value = row[index]
     else:
-        value = getattr(row, key, getattr(row, key.lower(), None))
+        value = getattr(row, lower_key, getattr(row, upper_key, None))
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _row_field(row: object, index: int, key: str) -> str | None:
+    return _row_field_any(row, index, key, key.lower())
+
+
+def _row_field_any(row: object, index: int, *keys: str) -> str | None:
+    if isinstance(row, dict):
+        value = None
+        for key in keys:
+            value = row.get(key, row.get(key.lower(), row.get(key.upper())))
+            if value is not None:
+                break
+    elif isinstance(row, (tuple, list)) and len(row) > index:
+        value = row[index]
+    else:
+        value = None
+        for key in keys:
+            value = getattr(row, key, getattr(row, key.lower(), None))
+            if value is not None:
+                break
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _quote_snowflake_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _quote_snowflake_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _selected_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if stripped == NOT_SELECTED:
+        return None
+    return stripped or None
+
+
+def _normalize_table_kind(kind: str) -> str:
+    normalized = kind.upper()
+    if normalized == "VIEW":
+        return "VIEW"
+    return "BASE TABLE"
+
+
+def _normalize_nullable(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = value.strip().upper()
+    if normalized in {"Y", "YES", "TRUE"}:
+        return "YES"
+    if normalized in {"N", "NO", "FALSE"}:
+        return "NO"
+    return value
 
 
 if __name__ == "__main__":
