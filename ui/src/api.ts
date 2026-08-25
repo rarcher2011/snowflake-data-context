@@ -64,6 +64,37 @@ export type MetadataDescriptionAnalysis = {
   strong_column_descriptions: number;
 };
 
+export type ColumnDescriptionUpdate = {
+  name: string;
+  description: string;
+};
+
+export type SaveColumnDescriptionsRequest = {
+  database: string;
+  schema: string;
+  table: string;
+  columns: ColumnDescriptionUpdate[];
+};
+
+export type SaveColumnDescriptionsResponse = {
+  status: "scaffolded";
+  persisted: boolean;
+  columnsReceived: number;
+};
+
+export type ColumnDescriptionSuggestion = {
+  name: string;
+  suggestedDescription: string;
+  reason: string;
+};
+
+export type MetadataDescriptionSuggestions = {
+  status: "scaffolded";
+  model: string;
+  table: string;
+  suggestions: ColumnDescriptionSuggestion[];
+};
+
 export type TableListRequest = {
   warehouse: string;
   database: string;
@@ -128,6 +159,18 @@ export async function runMetadataDescriptionAnalysis(
       },
     ],
   });
+}
+
+export async function saveColumnDescriptions(
+  request: SaveColumnDescriptionsRequest,
+): Promise<SaveColumnDescriptionsResponse> {
+  return postRequiredJson<SaveColumnDescriptionsResponse>("/api/snowflake/column-descriptions", request);
+}
+
+export async function suggestColumnDescriptions(
+  metadata: TableMetadata,
+): Promise<MetadataDescriptionSuggestions> {
+  return postRequiredJson<MetadataDescriptionSuggestions>("/api/snowflake/description-suggestions", metadata);
 }
 
 async function getRequiredJson<T>(path: string): Promise<T> {

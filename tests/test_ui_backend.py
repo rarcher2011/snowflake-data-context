@@ -295,6 +295,79 @@ def test_ui_app_exposes_metadata_description_analysis_endpoint() -> None:
     assert payload["missing_column_descriptions"] == 1
 
 
+def test_ui_app_scaffolds_column_description_save_endpoint() -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_ui_app(connection_factory=lambda: FakeConnection()))
+
+    response = client.post(
+        "/api/snowflake/column-descriptions",
+        json={
+            "database": "RBAC_DEV",
+            "schema": "SAMPLE_DATA",
+            "table": "GAS_SAMPLE",
+            "columns": [
+                {"name": "ORDER_ID", "description": "Unique order identifier."},
+                {"name": "CUSTOMER_ID", "description": "Customer identifier."},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "scaffolded",
+        "persisted": False,
+        "columnsReceived": 2,
+    }
+
+
+def test_ui_app_scaffolds_llm_description_suggestion_endpoint() -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_ui_app(connection_factory=lambda: FakeConnection()))
+
+    response = client.post(
+        "/api/snowflake/description-suggestions",
+        json={
+            "database": "RBAC_DEV",
+            "schema": "SAMPLE_DATA",
+            "table": "GAS_SAMPLE",
+            "columns": [
+                {
+                    "name": "ORDER_ID",
+                    "dataType": "NUMBER",
+                    "description": "Unique order identifier.",
+                    "nullable": "NO",
+                },
+                {
+                    "name": "CUSTOMER_ID",
+                    "dataType": "VARCHAR",
+                    "description": "",
+                    "nullable": "YES",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "scaffolded"
+    assert payload["model"] == "not_configured"
+    assert payload["table"] == "RBAC_DEV.SAMPLE_DATA.GAS_SAMPLE"
+    assert payload["suggestions"] == [
+        {
+            "name": "ORDER_ID",
+            "suggestedDescription": "Unique order identifier.",
+            "reason": "Scaffolded from current metadata; replace with LLM output when configured.",
+        },
+        {
+            "name": "CUSTOMER_ID",
+            "suggestedDescription": "customer id value stored as VARCHAR.",
+            "reason": "Scaffolded from current metadata; replace with LLM output when configured.",
+        },
+    ]
+
+
 def test_fetch_snowflake_identity_returns_current_user_and_database() -> None:
     connection = FakeConnection()
 

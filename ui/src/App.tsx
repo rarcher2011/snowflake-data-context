@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   ConnectionStatus,
+  DescriptionAnalysisColumn,
   MetadataDescriptionAnalysis,
   TableMetadata,
   TableSummary,
@@ -12,6 +13,8 @@ import {
   listTables,
   listWarehouses,
   runMetadataDescriptionAnalysis,
+  saveColumnDescriptions,
+  suggestColumnDescriptions,
 } from "./api";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -36,7 +39,10 @@ export default function App() {
   const [tableState, setTableState] = useState<LoadState>("idle");
   const [metadataState, setMetadataState] = useState<LoadState>("idle");
   const [analysisState, setAnalysisState] = useState<LoadState>("idle");
+  const [saveState, setSaveState] = useState<LoadState>("idle");
+  const [suggestionState, setSuggestionState] = useState<LoadState>("idle");
   const [analysisResult, setAnalysisResult] = useState<MetadataDescriptionAnalysis | null>(null);
+  const [editedDescriptions, setEditedDescriptions] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -179,7 +185,12 @@ export default function App() {
       });
       setTables(tableResults);
       setSelectedMetadata(null);
+      setEditedDescriptions({});
+      setAnalysisResult(null);
       setMetadataState("idle");
+      setAnalysisState("idle");
+      setSaveState("idle");
+      setSuggestionState("idle");
       setTableState("ready");
     } catch (error) {
       setTableState("error");
@@ -201,8 +212,11 @@ export default function App() {
         table: table.name,
       });
       setSelectedMetadata(metadata);
+      setEditedDescriptions(descriptionsByColumnName(metadata));
       setAnalysisResult(null);
       setAnalysisState("idle");
+      setSaveState("idle");
+      setSuggestionState("idle");
       setMetadataState("ready");
       openView("metadata");
     } catch (error) {
@@ -229,6 +243,70 @@ export default function App() {
     }
   }
 
+  async function saveDescriptions() {
+    if (!selectedMetadata) {
+      setMessage("Select table metadata before saving descriptions.");
+      return;
+    }
+    setSaveState("loading");
+    setMessage("");
+    try {
+      const response = await saveColumnDescriptions({
+        database: selectedMetadata.database,
+        schema: selectedMetadata.schema,
+        table: selectedMetadata.table,
+        columns: selectedMetadata.columns.map((column) => ({
+          name: column.name,
+          description: editedDescriptions[column.name] ?? column.description,
+        })),
+      });
+      setSaveState("ready");
+      setMessage(
+        response.persisted
+          ? "Column descriptions saved."
+          : `Save endpoint scaffold received ${response.columnsReceived} descriptions.`,
+      );
+    } catch (error) {
+      setSaveState("error");
+      setMessage(error instanceof Error ? error.message : "Unable to save descriptions.");
+    }
+  }
+
+  async function suggestDescriptions() {
+    if (!selectedMetadata) {
+      setMessage("Select table metadata before suggesting descriptions.");
+      return;
+    }
+    setSuggestionState("loading");
+    setMessage("");
+    try {
+      const response = await suggestColumnDescriptions(selectedMetadata);
+      setEditedDescriptions((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          response.suggestions.map((suggestion) => [
+            suggestion.name,
+            suggestion.suggestedDescription,
+          ]),
+        ),
+      }));
+      setSuggestionState("ready");
+      setSaveState("idle");
+      setMessage(`Suggestion endpoint scaffold returned ${response.suggestions.length} descriptions.`);
+    } catch (error) {
+      setSuggestionState("error");
+      setMessage(error instanceof Error ? error.message : "Unable to suggest descriptions.");
+    }
+  }
+
+  function updateEditedDescription(columnName: string, description: string) {
+    setEditedDescriptions((current) => ({
+      ...current,
+      [columnName]: description,
+    }));
+    setSaveState("idle");
+  }
+
   function openView(view: AppView) {
     setActiveView(view);
     const nextHash = view === "metadata" ? metadataHash : "";
@@ -238,6 +316,7 @@ export default function App() {
   }
 
   const isMetadataView = activeView === "metadata";
+  const analysisByColumn = buildAnalysisByColumnName(analysisResult);
 
   return (
     <main className="app-shell">
@@ -292,7 +371,6 @@ export default function App() {
             <h1>{isMetadataView ? "Metadata Workspace" : "Agent Workspace"}</h1>
           </div>
           <div className="top-actions">
-            <input aria-label="Search" placeholder="Search metadata..." type="search" />
             <button
               className="primary-action top-action"
               type="button"
@@ -470,13 +548,33 @@ export default function App() {
             {isMetadataView ? (
               <>
                 <div className="panel metadata-panel">
-                  <div className="panel-heading">
-                    <h2>Metadata</h2>
-                    <p>
-                      {selectedMetadata
-                        ? `${selectedMetadata.database}.${selectedMetadata.schema}.${selectedMetadata.table}`
-                        : "Selected table"}
-                    </p>
+                  <div className="panel-heading metadata-heading">
+                    <div>
+                      <h2>Metadata</h2>
+                      <p>
+                        {selectedMetadata
+                          ? `${selectedMetadata.database}.${selectedMetadata.schema}.${selectedMetadata.table}`
+                          : "Selected table"}
+                      </p>
+                    </div>
+                    <div className="metadata-actions">
+                      <button
+                        className="metadata-secondary-action"
+                        type="button"
+                        onClick={() => void suggestDescriptions()}
+                        disabled={!selectedMetadata || suggestionState === "loading"}
+                      >
+                        {suggestionState === "loading" ? "Suggesting" : "Suggest"}
+                      </button>
+                      <button
+                        className="metadata-save-action"
+                        type="button"
+                        onClick={() => void saveDescriptions()}
+                        disabled={!selectedMetadata || saveState === "loading"}
+                      >
+                        {saveState === "loading" ? "Saving" : "Save"}
+                      </button>
+                    </div>
                   </div>
 
                   {metadataState === "loading" ? <div className="empty-state">Loading metadata</div> : null}
@@ -487,17 +585,43 @@ export default function App() {
                         <span role="columnheader">Field</span>
                         <span role="columnheader">Schema</span>
                         <span role="columnheader">Description</span>
+                        <span role="columnheader">Quality</span>
+                        <span role="columnheader">Score</span>
+                        <span role="columnheader">Recommendation</span>
                       </div>
-                      {selectedMetadata.columns.map((column) => (
-                        <div className="metadata-row" role="row" key={column.name}>
-                          <span role="cell">{column.name}</span>
-                          <span role="cell">
-                            {column.dataType}
-                            {column.nullable ? ` · ${column.nullable === "YES" ? "nullable" : "required"}` : ""}
-                          </span>
-                          <span role="cell">{column.description || "No description"}</span>
-                        </div>
-                      ))}
+                      {selectedMetadata.columns.map((column) => {
+                        const analysis = analysisByColumn[column.name.toUpperCase()];
+                        return (
+                          <div className="metadata-row" role="row" key={column.name}>
+                            <span role="cell">{column.name}</span>
+                            <span role="cell">
+                              {column.dataType}
+                              {column.nullable ? ` · ${column.nullable === "YES" ? "nullable" : "required"}` : ""}
+                            </span>
+                            <span role="cell">
+                              <textarea
+                                aria-label={`${column.name} description`}
+                                value={editedDescriptions[column.name] ?? column.description}
+                                onChange={(event) => updateEditedDescription(column.name, event.target.value)}
+                                placeholder="No description"
+                              />
+                            </span>
+                            <span role="cell">
+                              {analysis ? (
+                                <span className={`quality quality-${analysis.result.quality}`}>
+                                  {analysis.result.quality}
+                                </span>
+                              ) : (
+                                "-"
+                              )}
+                            </span>
+                            <span role="cell">{analysis ? analysis.result.score : "-"}</span>
+                            <span role="cell">
+                              {analysis?.result.recommendation ?? analysis?.result.issues.join("; ") ?? "-"}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
 
@@ -506,65 +630,6 @@ export default function App() {
                   ) : null}
                 </div>
 
-                <div className="panel analysis-panel">
-                  <div className="panel-heading">
-                    <h2>Analysis</h2>
-                    <p>
-                      {analysisResult
-                        ? `${analysisResult.total_columns} columns scored`
-                        : "Description quality"}
-                    </p>
-                  </div>
-
-                  {analysisState === "loading" ? <div className="empty-state">Running analysis</div> : null}
-
-                  {analysisState !== "loading" && analysisResult ? (
-                    <div className="analysis-content">
-                      <div className="analysis-metrics">
-                        <div>
-                          <p>Coverage</p>
-                          <strong>{formatPercent(analysisResult.described_columns, analysisResult.total_columns)}</strong>
-                        </div>
-                        <div>
-                          <p>Missing</p>
-                          <strong>{analysisResult.missing_column_descriptions}</strong>
-                        </div>
-                        <div>
-                          <p>Weak</p>
-                          <strong>{analysisResult.weak_column_descriptions}</strong>
-                        </div>
-                        <div>
-                          <p>Strong</p>
-                          <strong>{analysisResult.strong_column_descriptions}</strong>
-                        </div>
-                      </div>
-
-                      <div className="analysis-list">
-                        {analysisResult.tables.flatMap((table) =>
-                          table.columns
-                            .filter((column) => column.result.quality === "missing" || column.result.quality === "weak")
-                            .map((column) => (
-                              <div className="analysis-item" key={`${table.table_identifier}.${column.column_name}`}>
-                                <strong>{column.column_name}</strong>
-                                <span className={`quality quality-${column.result.quality}`}>
-                                  {column.result.quality}
-                                </span>
-                                <p>{column.result.recommendation ?? column.result.issues.join("; ")}</p>
-                              </div>
-                            )),
-                        )}
-                        {analysisResult.missing_column_descriptions === 0 &&
-                        analysisResult.weak_column_descriptions === 0 ? (
-                          <div className="empty-state">No weak or missing descriptions found</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {analysisState !== "loading" && !analysisResult ? (
-                    <div className="empty-state">Run analysis after selecting metadata</div>
-                  ) : null}
-                </div>
               </>
             ) : null}
           </div>
@@ -572,13 +637,6 @@ export default function App() {
       </div>
     </main>
   );
-}
-
-function formatPercent(described: number, total: number): string {
-  if (total === 0) {
-    return "100%";
-  }
-  return `${Math.round((described / total) * 100)}%`;
 }
 
 function missingSelectionMessage(selections: {
@@ -593,4 +651,21 @@ function missingSelectionMessage(selections: {
   ].filter((selection) => selection !== null);
 
   return `Select a ${missing.join(", ")} before running the table list.`;
+}
+
+function descriptionsByColumnName(metadata: TableMetadata): Record<string, string> {
+  return Object.fromEntries(metadata.columns.map((column) => [column.name, column.description]));
+}
+
+function buildAnalysisByColumnName(
+  analysis: MetadataDescriptionAnalysis | null,
+): Record<string, DescriptionAnalysisColumn> {
+  if (!analysis) {
+    return {};
+  }
+  return Object.fromEntries(
+    analysis.tables.flatMap((table) =>
+      table.columns.map((column) => [column.column_name.toUpperCase(), column]),
+    ),
+  );
 }
