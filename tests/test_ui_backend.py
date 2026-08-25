@@ -4,6 +4,7 @@ from openai_snowflake_agent_context.ui_backend import (
     build_connection_status,
     build_env_snowflake_config,
     create_env_connection_factory,
+    create_ui_app,
     describe_snowflake_table,
     fetch_snowflake_identity,
     list_snowflake_databases,
@@ -259,6 +260,39 @@ def test_describe_snowflake_table_returns_column_metadata() -> None:
         ),
     ]
     assert connection.closed is True
+
+
+def test_ui_app_exposes_metadata_description_analysis_endpoint() -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_ui_app(connection_factory=lambda: FakeConnection()))
+
+    response = client.post(
+        "/metadata/description-analysis",
+        json={
+            "tables": [
+                {
+                    "database": "RBAC_DEV",
+                    "schema": "SAMPLE_DATA",
+                    "name": "GAS_SAMPLE",
+                    "kind": "TABLE",
+                    "description": None,
+                    "columns": [
+                        "ORDER_ID NUMBER -- Unique order identifier.",
+                        "CUSTOMER_ID VARCHAR",
+                    ],
+                    "context_markdown": "",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_tables"] == 1
+    assert payload["total_columns"] == 2
+    assert payload["described_columns"] == 1
+    assert payload["missing_column_descriptions"] == 1
 
 
 def test_fetch_snowflake_identity_returns_current_user_and_database() -> None:

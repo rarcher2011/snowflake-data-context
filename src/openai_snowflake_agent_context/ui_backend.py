@@ -6,6 +6,7 @@ import os
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
+from .chatgpt_plugin import MetadataAnalysisRequest, execute_metadata_description_analysis
 from .config import SnowflakeContextConfig
 from .connection import connect_with_private_key
 
@@ -334,6 +335,10 @@ def create_ui_app(
             )
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/metadata/description-analysis")
+    def analyze_metadata_descriptions(payload: MetadataAnalysisRequest) -> dict[str, Any]:
+        return execute_metadata_description_analysis(payload)
 
     @app.get("/api/connection/status")
     def connection_status() -> dict[str, object]:

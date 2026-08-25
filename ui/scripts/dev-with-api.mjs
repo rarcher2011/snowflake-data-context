@@ -1,9 +1,21 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 
 const repoRoot = new URL("../..", import.meta.url);
 const uiRoot = new URL("..", import.meta.url);
-const apiHealthUrl = "http://127.0.0.1:8000/openapi.json";
-const requiredApiPaths = ["/api/snowflake/databases", "/api/snowflake/table-metadata"];
+const apiPort = await findAvailablePort(Number(process.env.SNOWFLAKE_CONTEXT_API_PORT ?? 8000));
+const uiPort = String(process.env.SNOWFLAKE_CONTEXT_UI_PORT ?? 5173);
+const apiBaseUrl = `http://127.0.0.1:${apiPort}`;
+const apiHealthUrl = `${apiBaseUrl}/openapi.json`;
+const requiredApiPaths = [
+  "/api/connection/status",
+  "/api/snowflake/warehouses",
+  "/api/snowflake/databases",
+  "/api/snowflake/schemas",
+  "/api/snowflake/tables",
+  "/api/snowflake/table-metadata",
+  "/metadata/description-analysis",
+];
 const children = [];
 let shuttingDown = false;
 
@@ -12,14 +24,24 @@ const api = spawnProcess("api", "uv", [
   "--no-sync",
   "python",
   "-m",
-  "openai_snowflake_agent_context.ui_backend",
+  "uvicorn",
+  "openai_snowflake_agent_context.ui_backend:create_ui_app",
+  "--factory",
+  "--host",
+  "127.0.0.1",
+  "--port",
+  String(apiPort),
 ], repoRoot);
 
 children.push(api);
 
 try {
   await waitForApi();
-  children.push(spawnProcess("ui", "vite", ["--host", "127.0.0.1"], uiRoot));
+  children.push(
+    spawnProcess("ui", "vite", ["--host", "127.0.0.1", "--port", uiPort], uiRoot, {
+      VITE_API_PROXY_TARGET: apiBaseUrl,
+    }),
+  );
 } catch (error) {
   process.stderr.write(`[api] ${error instanceof Error ? error.message : String(error)}\n`);
   shutdown(1);
@@ -28,11 +50,12 @@ try {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-function spawnProcess(name, command, args, cwd) {
+function spawnProcess(name, command, args, cwd, extraEnv = {}) {
   const child = spawn(command, args, {
     cwd,
     env: {
       ...process.env,
+      ...extraEnv,
       UV_CACHE_DIR: ".uv-cache",
     },
     shell: true,
@@ -52,6 +75,27 @@ function spawnProcess(name, command, args, cwd) {
   });
 
   return child;
+}
+
+async function findAvailablePort(preferredPort) {
+  const host = "127.0.0.1";
+  for (let port = preferredPort; port < preferredPort + 25; port += 1) {
+    if (await canListen(host, port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available API port found from ${preferredPort} to ${preferredPort + 24}.`);
+}
+
+function canListen(host, port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, host);
+  });
 }
 
 async function waitForApi() {
