@@ -6,6 +6,8 @@ import os
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
+from pydantic import BaseModel, Field
+
 from .chatgpt_plugin import MetadataAnalysisRequest, execute_metadata_description_analysis
 from .config import SnowflakeContextConfig
 from .connection import connect_with_private_key
@@ -35,6 +37,40 @@ class WarehouseConnection(Protocol):
 
 
 ConnectionFactory = Callable[[], WarehouseConnection]
+
+
+class ColumnDescriptionUpdate(BaseModel):
+    """Editable column description submitted by the UI."""
+
+    name: str
+    description: str
+
+
+class ColumnDescriptionSaveRequest(BaseModel):
+    """Request body for saving edited Snowflake column descriptions."""
+
+    database: str
+    schema_name: str = Field(alias="schema")
+    table: str
+    columns: list[ColumnDescriptionUpdate]
+
+
+class ColumnMetadataPayload(BaseModel):
+    """Column metadata submitted by the UI for description suggestions."""
+
+    name: str
+    dataType: str
+    description: str = ""
+    nullable: str = ""
+
+
+class MetadataDescriptionSuggestionRequest(BaseModel):
+    """Request body for LLM-backed column description suggestions."""
+
+    database: str
+    schema_name: str = Field(alias="schema")
+    table: str
+    columns: list[ColumnMetadataPayload]
 
 
 def list_snowflake_warehouses(connection_factory: ConnectionFactory) -> list[str]:
@@ -340,6 +376,32 @@ def create_ui_app(
     def analyze_metadata_descriptions(payload: MetadataAnalysisRequest) -> dict[str, Any]:
         return execute_metadata_description_analysis(payload)
 
+    @app.post("/api/snowflake/column-descriptions")
+    def save_column_descriptions(payload: ColumnDescriptionSaveRequest) -> dict[str, object]:
+        return {
+            "status": "scaffolded",
+            "persisted": False,
+            "columnsReceived": len(payload.columns),
+        }
+
+    @app.post("/api/snowflake/description-suggestions")
+    def suggest_column_descriptions(
+        payload: MetadataDescriptionSuggestionRequest,
+    ) -> dict[str, object]:
+        return {
+            "status": "scaffolded",
+            "model": "not_configured",
+            "table": f"{payload.database}.{payload.schema_name}.{payload.table}",
+            "suggestions": [
+                {
+                    "name": column.name,
+                    "suggestedDescription": _scaffold_column_description(column),
+                    "reason": "Scaffolded from current metadata; replace with LLM output when configured.",
+                }
+                for column in payload.columns
+            ],
+        }
+
     @app.get("/api/connection/status")
     def connection_status() -> dict[str, object]:
         return build_connection_status(connection_factory=connection_factory)
@@ -537,6 +599,16 @@ def _normalize_nullable(value: str | None) -> str:
     if normalized in {"N", "NO", "FALSE"}:
         return "NO"
     return value
+
+
+def _scaffold_column_description(column: ColumnMetadataPayload) -> str:
+    if column.description.strip():
+        return column.description.strip()
+    column_name = column.name.replace("_", " ").strip().lower()
+    data_type = column.dataType.strip()
+    if data_type:
+        return f"{column_name} value stored as {data_type}."
+    return f"{column_name} value."
 
 
 if __name__ == "__main__":
