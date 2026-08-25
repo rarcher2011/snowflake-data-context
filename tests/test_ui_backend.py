@@ -96,6 +96,29 @@ class WarehouseRow:
         self.name = name
 
 
+class FakeLLMResponse:
+    output_text = (
+        '{"columns":[{"name":"ORDER_ID","description":"Unique order identifier.",'
+        '"rationale":"Existing description is already specific."},'
+        '{"name":"CUSTOMER_ID","description":"Identifier for the customer associated with the row.",'
+        '"rationale":"Names the business entity and relationship."}]}'
+    )
+
+
+class FakeLLMResponses:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, object] = {}
+
+    def create(self, **kwargs: object) -> object:
+        self.kwargs = kwargs
+        return FakeLLMResponse()
+
+
+class FakeLLMClient:
+    def __init__(self) -> None:
+        self.responses = FakeLLMResponses()
+
+
 def test_list_snowflake_warehouses_executes_show_warehouses_and_closes_connection() -> None:
     connection = FakeConnection()
 
@@ -321,10 +344,19 @@ def test_ui_app_scaffolds_column_description_save_endpoint() -> None:
     }
 
 
-def test_ui_app_scaffolds_llm_description_suggestion_endpoint() -> None:
+def test_ui_app_uses_llm_client_for_description_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi.testclient import TestClient
 
-    client = TestClient(create_ui_app(connection_factory=lambda: FakeConnection()))
+    monkeypatch.setenv("OPENAI_DESCRIPTION_MODEL", "test-description-model")
+    llm_client = FakeLLMClient()
+    client = TestClient(
+        create_ui_app(
+            connection_factory=lambda: FakeConnection(),
+            llm_client_factory=lambda: llm_client,
+        )
+    )
 
     response = client.post(
         "/api/snowflake/description-suggestions",
@@ -351,21 +383,23 @@ def test_ui_app_scaffolds_llm_description_suggestion_endpoint() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "scaffolded"
-    assert payload["model"] == "not_configured"
+    assert payload["status"] == "suggested"
+    assert payload["model"] == "test-description-model"
     assert payload["table"] == "RBAC_DEV.SAMPLE_DATA.GAS_SAMPLE"
     assert payload["suggestions"] == [
         {
             "name": "ORDER_ID",
             "suggestedDescription": "Unique order identifier.",
-            "reason": "Scaffolded from current metadata; replace with LLM output when configured.",
+            "reason": "Existing description is already specific.",
         },
         {
             "name": "CUSTOMER_ID",
-            "suggestedDescription": "customer id value stored as VARCHAR.",
-            "reason": "Scaffolded from current metadata; replace with LLM output when configured.",
+            "suggestedDescription": "Identifier for the customer associated with the row.",
+            "reason": "Names the business entity and relationship.",
         },
     ]
+    assert llm_client.responses.kwargs["model"] == "test-description-model"
+    assert "RBAC_DEV" in str(llm_client.responses.kwargs["input"])
 
 
 def test_fetch_snowflake_identity_returns_current_user_and_database() -> None:
