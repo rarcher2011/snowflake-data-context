@@ -32,6 +32,38 @@ export type TableMetadata = {
   columns: ColumnMetadata[];
 };
 
+export type DescriptionAnalysisColumn = {
+  table_identifier: string;
+  column_name: string;
+  raw_column: string;
+  description: string | null;
+  result: {
+    has_description: boolean;
+    quality: "missing" | "weak" | "adequate" | "strong";
+    score: number;
+    issues: string[];
+    recommendation: string | null;
+  };
+};
+
+export type DescriptionAnalysisTable = {
+  table_identifier: string;
+  table_description: string | null;
+  table_result: DescriptionAnalysisColumn["result"];
+  columns: DescriptionAnalysisColumn[];
+};
+
+export type MetadataDescriptionAnalysis = {
+  tables: DescriptionAnalysisTable[];
+  total_tables: number;
+  total_columns: number;
+  described_columns: number;
+  missing_column_descriptions: number;
+  weak_column_descriptions: number;
+  adequate_column_descriptions: number;
+  strong_column_descriptions: number;
+};
+
 export type TableListRequest = {
   warehouse: string;
   database: string;
@@ -80,11 +112,60 @@ export async function getTableMetadata(request: TableMetadataRequest): Promise<T
   return getRequiredJson<TableMetadata>(`/api/snowflake/table-metadata?${search.toString()}`);
 }
 
+export async function runMetadataDescriptionAnalysis(
+  metadata: TableMetadata,
+): Promise<MetadataDescriptionAnalysis> {
+  return postRequiredJson<MetadataDescriptionAnalysis>("/metadata/description-analysis", {
+    tables: [
+      {
+        database: metadata.database,
+        schema: metadata.schema,
+        name: metadata.table,
+        kind: "TABLE",
+        description: null,
+        columns: metadata.columns.map(formatColumnForAnalysis),
+        context_markdown: "",
+      },
+    ],
+  });
+}
+
 async function getRequiredJson<T>(path: string): Promise<T> {
   const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`);
+    throw new Error(await responseErrorMessage(response));
   }
   return (await response.json()) as T;
+}
+
+async function postRequiredJson<T>(path: string, body: object): Promise<T> {
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response));
+  }
+  return (await response.json()) as T;
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+    if (typeof payload.detail === "string" && payload.detail) {
+      return payload.detail;
+    }
+  } catch {
+    // Fall through to the generic status message when the response is not JSON.
+  }
+  return `Request failed with ${response.status}`;
+}
+
+function formatColumnForAnalysis(column: ColumnMetadata): string {
+  const dataType = column.dataType ? ` ${column.dataType}` : "";
+  const description = column.description ? ` -- ${column.description}` : "";
+  return `${column.name}${dataType}${description}`;
 }
