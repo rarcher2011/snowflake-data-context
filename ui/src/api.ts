@@ -89,7 +89,7 @@ export type ColumnDescriptionSuggestion = {
 };
 
 export type MetadataDescriptionSuggestions = {
-  status: "scaffolded";
+  status: "suggested";
   model: string;
   table: string;
   suggestions: ColumnDescriptionSuggestion[];

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from typing import Any, Protocol, cast
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field
 from .chatgpt_plugin import MetadataAnalysisRequest, execute_metadata_description_analysis
 from .config import SnowflakeContextConfig
 from .connection import connect_with_private_key
+from .openai_responses import extract_response_text
 
 NOT_CONFIGURED = "Not configured"
 NOT_SELECTED = "Not selected"
@@ -37,6 +39,22 @@ class WarehouseConnection(Protocol):
 
 
 ConnectionFactory = Callable[[], WarehouseConnection]
+
+
+class LLMResponsesResource(Protocol):
+    """Minimal Responses API surface needed for description suggestions."""
+
+    def create(self, **kwargs: Any) -> object:
+        """Create a model response."""
+
+
+class LLMClient(Protocol):
+    """Minimal configured LLM SDK client used by the UI backend."""
+
+    responses: LLMResponsesResource
+
+
+LLMClientFactory = Callable[[], LLMClient]
 
 
 class ColumnDescriptionUpdate(BaseModel):
@@ -286,8 +304,22 @@ def create_env_connection_factory(
     return factory
 
 
+def create_env_llm_client(environ: dict[str, str] | None = None) -> LLMClient:
+    """Create an OpenAI SDK client from environment configuration."""
+
+    environ = environ or dict(os.environ)
+    if not environ.get("OPENAI_API_KEY"):
+        raise ValueError("OPENAI_API_KEY is required to suggest descriptions with the LLM SDK.")
+    try:
+        from openai import OpenAI
+    except ImportError as exc:  # pragma: no cover - package dependency should provide this
+        raise RuntimeError("Install the openai package to suggest descriptions.") from exc
+    return cast(LLMClient, OpenAI())
+
+
 def create_ui_app(
     connection_factory: ConnectionFactory | None = None,
+    llm_client_factory: LLMClientFactory | None = None,
 ) -> Any:
     """Create the FastAPI app used by the local React UI."""
 
@@ -388,19 +420,17 @@ def create_ui_app(
     def suggest_column_descriptions(
         payload: MetadataDescriptionSuggestionRequest,
     ) -> dict[str, object]:
-        return {
-            "status": "scaffolded",
-            "model": "not_configured",
-            "table": f"{payload.database}.{payload.schema_name}.{payload.table}",
-            "suggestions": [
-                {
-                    "name": column.name,
-                    "suggestedDescription": _scaffold_column_description(column),
-                    "reason": "Scaffolded from current metadata; replace with LLM output when configured.",
-                }
-                for column in payload.columns
-            ],
-        }
+        try:
+            environ = dict(os.environ)
+            client = llm_client_factory() if llm_client_factory else create_env_llm_client(environ)
+            model = _description_suggestion_model(environ)
+            return suggest_metadata_descriptions_with_llm(
+                payload=payload,
+                llm_client=client,
+                model=model,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/connection/status")
     def connection_status() -> dict[str, object]:
@@ -601,14 +631,124 @@ def _normalize_nullable(value: str | None) -> str:
     return value
 
 
-def _scaffold_column_description(column: ColumnMetadataPayload) -> str:
-    if column.description.strip():
-        return column.description.strip()
-    column_name = column.name.replace("_", " ").strip().lower()
-    data_type = column.dataType.strip()
-    if data_type:
-        return f"{column_name} value stored as {data_type}."
-    return f"{column_name} value."
+def suggest_metadata_descriptions_with_llm(
+    *,
+    payload: MetadataDescriptionSuggestionRequest,
+    llm_client: LLMClient,
+    model: str,
+) -> dict[str, object]:
+    """Ask a configured LLM client for column description suggestions."""
+
+    response = llm_client.responses.create(
+        model=model,
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "You write concise Snowflake column descriptions for analytics teams. "
+                    "Use only the submitted table and column metadata. "
+                    "Return strict JSON with a columns array. Each item must include "
+                    "name, description, and rationale."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(_llm_description_suggestion_payload(payload), sort_keys=True),
+            },
+        ],
+    )
+    response_text = extract_response_text(response)
+    suggestions = _parse_llm_description_suggestions(response_text)
+    return {
+        "status": "suggested",
+        "model": model,
+        "table": f"{payload.database}.{payload.schema_name}.{payload.table}",
+        "suggestions": [
+            {
+                "name": suggestion["name"],
+                "suggestedDescription": suggestion["description"],
+                "reason": suggestion["rationale"],
+            }
+            for suggestion in suggestions
+        ],
+    }
+
+
+def _llm_description_suggestion_payload(
+    payload: MetadataDescriptionSuggestionRequest,
+) -> dict[str, object]:
+    return {
+        "table": {
+            "database": payload.database,
+            "schema": payload.schema_name,
+            "name": payload.table,
+        },
+        "columns": [
+            {
+                "name": column.name,
+                "data_type": column.dataType,
+                "existing_description": column.description,
+                "nullable": column.nullable,
+            }
+            for column in payload.columns
+        ],
+    }
+
+
+def _parse_llm_description_suggestions(response_text: str) -> list[dict[str, str]]:
+    try:
+        payload = json.loads(response_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM response did not contain valid JSON suggestions.") from exc
+
+    raw_columns = payload.get("columns", payload.get("suggestions"))
+    if not isinstance(raw_columns, list):
+        raise TypeError("LLM response must include a columns array.")
+
+    suggestions: list[dict[str, str]] = []
+    for raw_column in raw_columns:
+        if not isinstance(raw_column, dict):
+            raise TypeError("Each column suggestion must be an object.")
+        suggestions.append(
+            {
+                "name": _required_payload_text(raw_column, "name"),
+                "description": _required_payload_text_any(
+                    raw_column,
+                    "description",
+                    "suggestedDescription",
+                    "suggested_description",
+                ),
+                "rationale": _optional_payload_text_any(raw_column, "rationale", "reason"),
+            }
+        )
+    return suggestions
+
+
+def _required_payload_text(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Column suggestion must include non-empty {key}.")
+    return value.strip()
+
+
+def _required_payload_text_any(payload: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise ValueError(f"Column suggestion must include one of: {', '.join(keys)}.")
+
+
+def _optional_payload_text_any(payload: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _description_suggestion_model(environ: dict[str, str]) -> str:
+    return environ.get("OPENAI_DESCRIPTION_MODEL") or environ.get("OPENAI_MODEL") or "gpt-4.1-mini"
 
 
 if __name__ == "__main__":

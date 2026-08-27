@@ -292,7 +292,7 @@ export default function App() {
       }));
       setSuggestionState("ready");
       setSaveState("idle");
-      setMessage(`Suggestion endpoint scaffold returned ${response.suggestions.length} descriptions.`);
+      setMessage(`LLM suggested ${response.suggestions.length} descriptions with ${response.model}.`);
     } catch (error) {
       setSuggestionState("error");
       setMessage(error instanceof Error ? error.message : "Unable to suggest descriptions.");
