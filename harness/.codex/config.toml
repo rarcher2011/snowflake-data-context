@@ -1,0 +1,30 @@
+[project]
+name = "snowflake-data-context-harness"
+repository = "rarcher2011/snowflake-data-context"
+
+[startup]
+read_files = [
+  "AGENTS.md",
+  "README.md",
+  "project_context.md",
+]
+memory_globs = [
+  ".agents/**",
+  "harness/**/memory*.md",
+  "harness/**/status*.md",
+]
+
+[validation]
+python = [
+  "UV_CACHE_DIR=.uv-cache uv run --no-sync python -m pytest",
+  "UV_CACHE_DIR=.uv-cache uv run --no-sync mypy src",
+  "UV_CACHE_DIR=.uv-cache uv run --no-sync ruff check src tests",
+]
+ui = [
+  "cd ui && npm run build",
+]
+
+[safety]
+avoid_destructive_git = true
+require_read_only_generated_sql = true
+avoid_live_network_calls_in_unit_tests = true
