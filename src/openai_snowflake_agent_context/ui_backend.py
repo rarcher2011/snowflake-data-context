@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
@@ -89,6 +90,18 @@ class MetadataDescriptionSuggestionRequest(BaseModel):
     schema_name: str = Field(alias="schema")
     table: str
     columns: list[ColumnMetadataPayload]
+
+
+class PlainTextTableQueryRequest(BaseModel):
+    """Request body for plain-text table queries backed by metadata context."""
+
+    warehouse: str | None = None
+    database: str
+    schema_name: str = Field(alias="schema")
+    table: str
+    question: str
+    columns: list[ColumnMetadataPayload]
+    row_limit: int = Field(default=100, ge=1, le=500)
 
 
 def list_snowflake_warehouses(connection_factory: ConnectionFactory) -> list[str]:
@@ -432,6 +445,22 @@ def create_ui_app(
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.post("/api/snowflake/query")
+    def query_table(payload: PlainTextTableQueryRequest) -> dict[str, object]:
+        try:
+            environ = dict(os.environ)
+            client = llm_client_factory() if llm_client_factory else create_env_llm_client(environ)
+            model = _query_generation_model(environ)
+            factory = connection_factory or create_env_connection_factory(environ)
+            return run_plain_text_table_query(
+                payload=payload,
+                connection_factory=factory,
+                llm_client=client,
+                model=model,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     @app.get("/api/connection/status")
     def connection_status() -> dict[str, object]:
         return build_connection_status(connection_factory=connection_factory)
@@ -548,6 +577,37 @@ def _column_metadata_from_row(row: object) -> dict[str, str]:
         "description": description,
         "nullable": _normalize_nullable(_row_field(row, 3, "IS_NULLABLE")),
     }
+
+
+def _cursor_column_names(cursor: object) -> list[str]:
+    description = getattr(cursor, "description", None)
+    if not isinstance(description, list | tuple):
+        return []
+    names: list[str] = []
+    for item in description:
+        if isinstance(item, (list, tuple)) and item:
+            names.append(str(item[0]))
+        else:
+            name = getattr(item, "name", None)
+            if name is not None:
+                names.append(str(name))
+    return names
+
+
+def _query_row_to_record(row: object, column_names: list[str]) -> dict[str, object]:
+    if isinstance(row, dict):
+        return dict(row)
+    if isinstance(row, (list, tuple)):
+        return {
+            column_names[index] if index < len(column_names) else f"column_{index + 1}": value
+            for index, value in enumerate(row)
+        }
+    as_dict = getattr(row, "as_dict", None)
+    if callable(as_dict):
+        value = as_dict()
+        if isinstance(value, dict):
+            return dict(value)
+    return {"value": row}
 
 
 def _current_database(cursor: WarehouseCursor) -> str | None:
@@ -674,6 +734,118 @@ def suggest_metadata_descriptions_with_llm(
     }
 
 
+def run_plain_text_table_query(
+    *,
+    payload: PlainTextTableQueryRequest,
+    connection_factory: ConnectionFactory,
+    llm_client: LLMClient,
+    model: str,
+) -> dict[str, object]:
+    """Generate a read-only Snowflake SQL query from metadata context and execute it."""
+
+    response = llm_client.responses.create(
+        model=model,
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "You generate safe, read-only Snowflake SQL for one selected table. "
+                    "Use only the supplied table metadata. Return strict JSON with sql and explanation. "
+                    "The SQL must be a single SELECT or WITH query and must not modify data."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(_llm_table_query_payload(payload), sort_keys=True),
+            },
+        ],
+    )
+    response_text = extract_response_text(response)
+    query_plan = _parse_llm_query_response(response_text)
+    sql = _bounded_read_only_sql(query_plan["sql"], payload.row_limit)
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if payload.warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(payload.warehouse)}")
+        cursor.execute(sql)
+        column_names = _cursor_column_names(cursor)
+        rows = [_query_row_to_record(row, column_names) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+    return {
+        "status": "completed",
+        "model": model,
+        "sql": sql,
+        "explanation": query_plan["explanation"],
+        "columns": column_names,
+        "rows": rows,
+        "rowCount": len(rows),
+    }
+
+
+def _llm_table_query_payload(payload: PlainTextTableQueryRequest) -> dict[str, object]:
+    return {
+        "question": payload.question,
+        "row_limit": payload.row_limit,
+        "table": {
+            "database": payload.database,
+            "schema": payload.schema_name,
+            "name": payload.table,
+            "identifier": _quote_snowflake_identifier_path(
+                payload.database,
+                payload.schema_name,
+                payload.table,
+            ),
+        },
+        "columns": [
+            {
+                "name": column.name,
+                "data_type": column.dataType,
+                "description": column.description,
+                "nullable": column.nullable,
+            }
+            for column in payload.columns
+        ],
+    }
+
+
+def _parse_llm_query_response(response_text: str) -> dict[str, str]:
+    try:
+        payload = json.loads(response_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM response did not contain valid JSON SQL.") from exc
+    if not isinstance(payload, dict):
+        raise TypeError("LLM query response must be an object.")
+    return {
+        "sql": _required_payload_text(payload, "sql"),
+        "explanation": _optional_payload_text_any(payload, "explanation", "rationale"),
+    }
+
+
+def _bounded_read_only_sql(sql: str, row_limit: int) -> str:
+    cleaned = sql.strip().rstrip(";").strip()
+    if not re.match(r"^(select|with)\b", cleaned, flags=re.IGNORECASE):
+        raise ValueError("Generated SQL must be a SELECT or WITH query.")
+    if ";" in cleaned:
+        raise ValueError("Generated SQL must contain a single statement.")
+    if re.search(
+        r"\b(insert|update|delete|merge|drop|alter|create|truncate|copy|put|remove|grant|revoke)\b",
+        cleaned,
+        flags=re.IGNORECASE,
+    ):
+        raise ValueError("Generated SQL must be read-only.")
+    if re.search(r"\blimit\s+\d+\b", cleaned, flags=re.IGNORECASE):
+        return cleaned
+    return f"SELECT * FROM (\n{cleaned}\n) AS generated_query\nLIMIT {row_limit}"
+
+
+def _quote_snowflake_identifier_path(*parts: str) -> str:
+    return ".".join(_quote_snowflake_identifier(part) for part in parts)
+
+
 def _llm_description_suggestion_payload(
     payload: MetadataDescriptionSuggestionRequest,
 ) -> dict[str, object]:
@@ -749,6 +921,10 @@ def _optional_payload_text_any(payload: dict[str, object], *keys: str) -> str:
 
 def _description_suggestion_model(environ: dict[str, str]) -> str:
     return environ.get("OPENAI_DESCRIPTION_MODEL") or environ.get("OPENAI_MODEL") or "gpt-4.1-mini"
+
+
+def _query_generation_model(environ: dict[str, str]) -> str:
+    return environ.get("OPENAI_QUERY_MODEL") or environ.get("OPENAI_MODEL") or "gpt-4.1-mini"
 
 
 if __name__ == "__main__":

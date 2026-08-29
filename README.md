@@ -109,7 +109,7 @@ uv sync --extra aws
 
 ### 2. Launch the React UI
 
-The repo includes a React workspace for checking Snowflake connection setup, choosing a warehouse, database, and schema, listing tables, reviewing table metadata, scoring description quality, and drafting improved column descriptions. The launch command starts both the React dev server and the FastAPI UI backend.
+The repo includes a React workspace for checking Snowflake connection setup, choosing a warehouse, database, and schema, listing tables, reviewing table metadata, scoring description quality, drafting improved column descriptions, and querying a selected table in plain text. The launch command starts both the React dev server and the FastAPI UI backend.
 
 ```bash
 uv sync --extra chatgpt-plugin
@@ -131,12 +131,13 @@ The UI backend exposes these endpoints:
 - `POST /metadata/description-analysis`
 - `POST /api/snowflake/description-suggestions`
 - `POST /api/snowflake/column-descriptions`
+- `POST /api/snowflake/query`
 
-The Home page shows connection setup, scope selection, and table discovery. The left-side Metadata page shows the selected table schema. Click a table row's `Metadata` button to load its columns. `Run Analysis` scores the current metadata and adds quality, score, and recommendation columns directly to the schema table. `Suggest` sends the current table metadata to the configured OpenAI SDK client and fills the editable description cells with suggested descriptions. `Save` submits the edited descriptions to the scaffolded save endpoint; it validates and accepts the payload but does not write to Snowflake yet.
+The Home page shows connection setup, scope selection, and table discovery. The left-side Metadata page shows the selected table schema. Click a table row's `Metadata` button to load its columns. `Run Analysis` scores the current metadata and adds quality, score, and recommendation columns directly to the schema table. `Suggest` sends the current table metadata to the configured OpenAI SDK client and fills the editable description cells with suggested descriptions. `Save` submits the edited descriptions to the scaffolded save endpoint; it validates and accepts the payload but does not write to Snowflake yet. The Query section accepts a plain-text question, sends the question and selected table metadata to the configured LLM, validates the generated SQL as read-only, runs it in Snowflake, and returns a preview of the result rows.
 
 The backend uses the `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_PRIVATE_KEY_PATH`, and optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_DATABASE`, and `SNOWFLAKE_SCHEMA` environment variables to connect to Snowflake with private-key authentication and run `CURRENT_USER`, `SHOW WAREHOUSES`, `SHOW DATABASES`, `SHOW SCHEMAS`, `SHOW TABLES`, and `INFORMATION_SCHEMA.COLUMNS` queries.
 
-The description suggestion endpoint uses the configured OpenAI SDK client. Set `OPENAI_API_KEY` before using `Suggest`. The model defaults to `gpt-4.1-mini`; override it with `OPENAI_DESCRIPTION_MODEL` or `OPENAI_MODEL`.
+The description suggestion and plain-text query endpoints use the configured OpenAI SDK client. Set `OPENAI_API_KEY` before using `Suggest` or `Run Query`. Description suggestions default to `gpt-4.1-mini`; override them with `OPENAI_DESCRIPTION_MODEL` or `OPENAI_MODEL`. Query generation also defaults to `gpt-4.1-mini`; override it with `OPENAI_QUERY_MODEL` or `OPENAI_MODEL`.
 
 If the dev server exits with `listen EPERM`, allow local network access for the Codex task or terminal session and rerun `npm run dev`. Vite and FastAPI need permission to bind local `127.0.0.1` development servers.
 
@@ -458,10 +459,13 @@ The React UI exposes the same metadata quality loop in a browser:
 5. Edit column descriptions directly in the schema table.
 6. Use `Suggest` to ask the configured OpenAI SDK client for draft descriptions based on the current metadata.
 7. Use `Save` to submit reviewed descriptions to `POST /api/snowflake/column-descriptions`.
+8. Use the Query section to ask a plain-text question about the selected table and execute the generated read-only SQL in Snowflake.
 
 The save route is intentionally scaffolded right now. It accepts the edited description payload and returns a non-persisted status so the frontend workflow can be developed before Snowflake `COMMENT ON COLUMN` execution is connected.
 
 The LLM suggestion route is `POST /api/snowflake/description-suggestions`. It accepts the selected table metadata, calls the OpenAI Responses API through the configured SDK client, expects JSON suggestions, and returns them to the UI for review. The default unit tests use fake clients; live OpenAI and Snowflake calls should stay out of default tests.
+
+The plain-text query route is `POST /api/snowflake/query`. It accepts the selected warehouse, table metadata, and a natural-language question. The backend asks the configured LLM for strict JSON containing SQL and an explanation, validates that the SQL is a single read-only `SELECT` or `WITH` statement, adds a preview limit when needed, runs the SQL in Snowflake, and returns the generated SQL plus result rows.
 
 ## Snowflake Description Updates
 
