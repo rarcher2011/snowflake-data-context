@@ -95,6 +95,22 @@ export type MetadataDescriptionSuggestions = {
   suggestions: ColumnDescriptionSuggestion[];
 };
 
+export type PlainTextTableQueryRequest = TableMetadata & {
+  warehouse: string;
+  question: string;
+  row_limit?: number;
+};
+
+export type PlainTextTableQueryResult = {
+  status: "completed";
+  model: string;
+  sql: string;
+  explanation: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  rowCount: number;
+};
+
 export type TableListRequest = {
   warehouse: string;
   database: string;
@@ -171,6 +187,12 @@ export async function suggestColumnDescriptions(
   metadata: TableMetadata,
 ): Promise<MetadataDescriptionSuggestions> {
   return postRequiredJson<MetadataDescriptionSuggestions>("/api/snowflake/description-suggestions", metadata);
+}
+
+export async function runPlainTextTableQuery(
+  request: PlainTextTableQueryRequest,
+): Promise<PlainTextTableQueryResult> {
+  return postRequiredJson<PlainTextTableQueryResult>("/api/snowflake/query", request);
 }
 
 async function getRequiredJson<T>(path: string): Promise<T> {

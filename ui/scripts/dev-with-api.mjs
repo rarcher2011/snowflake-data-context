@@ -16,6 +16,7 @@ const requiredApiPaths = [
   "/api/snowflake/table-metadata",
   "/api/snowflake/column-descriptions",
   "/api/snowflake/description-suggestions",
+  "/api/snowflake/query",
   "/metadata/description-analysis",
 ];
 const children = [];

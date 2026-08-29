@@ -18,9 +18,12 @@ class FakeCursor:
     def __init__(self, current_database: str | None = "ANALYTICS") -> None:
         self.executed_sql: list[str] = []
         self.current_database = current_database
+        self.description: list[tuple[str]] = []
 
     def execute(self, sql: str) -> object:
         self.executed_sql.append(sql)
+        if "COUNT(*) AS ORDER_COUNT" in sql:
+            self.description = [("ORDER_COUNT",)]
         return self
 
     def fetchall(self) -> list[object]:
@@ -72,6 +75,8 @@ class FakeCursor:
                     "ORDINAL_POSITION": 2,
                 },
             ]
+        if "COUNT(*) AS ORDER_COUNT" in self.executed_sql[-1]:
+            return [(2,)]
         return [
             ("AGENT_WH",),
             {"name": "ANALYST_WH"},
@@ -97,27 +102,23 @@ class WarehouseRow:
 
 
 class FakeLLMResponse:
-    output_text = (
-        '{"columns":[{"name":"ORDER_ID","description":"Unique order identifier.",'
-        '"rationale":"Existing description is already specific."},'
-        '{"name":"CUSTOMER_ID","description":"Identifier for the customer associated with the row.",'
-        '"rationale":"Names the business entity and relationship."}]}'
-    )
+    def __init__(self, output_text: str) -> None:
+        self.output_text = output_text
 
 
 class FakeLLMResponses:
-    def __init__(self) -> None:
+    def __init__(self, output_text: str) -> None:
+        self.output_text = output_text
         self.kwargs: dict[str, object] = {}
 
     def create(self, **kwargs: object) -> object:
         self.kwargs = kwargs
-        return FakeLLMResponse()
+        return FakeLLMResponse(self.output_text)
 
 
 class FakeLLMClient:
-    def __init__(self) -> None:
-        self.responses = FakeLLMResponses()
-
+    def __init__(self, output_text: str) -> None:
+        self.responses = FakeLLMResponses(output_text)
 
 def test_list_snowflake_warehouses_executes_show_warehouses_and_closes_connection() -> None:
     connection = FakeConnection()
@@ -350,7 +351,12 @@ def test_ui_app_uses_llm_client_for_description_suggestions(
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("OPENAI_DESCRIPTION_MODEL", "test-description-model")
-    llm_client = FakeLLMClient()
+    llm_client = FakeLLMClient(
+        '{"columns":[{"name":"ORDER_ID","description":"Unique order identifier.",'
+        '"rationale":"Existing description is already specific."},'
+        '{"name":"CUSTOMER_ID","description":"Identifier for the customer associated with the row.",'
+        '"rationale":"Names the business entity and relationship."}]}'
+    )
     client = TestClient(
         create_ui_app(
             connection_factory=lambda: FakeConnection(),
@@ -400,6 +406,67 @@ def test_ui_app_uses_llm_client_for_description_suggestions(
     ]
     assert llm_client.responses.kwargs["model"] == "test-description-model"
     assert "RBAC_DEV" in str(llm_client.responses.kwargs["input"])
+
+
+def test_ui_app_generates_and_runs_plain_text_table_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("OPENAI_QUERY_MODEL", "test-query-model")
+    connection = FakeConnection()
+    llm_client = FakeLLMClient(
+        '{"sql":"SELECT COUNT(*) AS ORDER_COUNT FROM \\"RBAC_DEV\\".\\"SAMPLE_DATA\\".\\"GAS_SAMPLE\\"",'
+        '"explanation":"Counts rows in the selected table."}'
+    )
+    client = TestClient(
+        create_ui_app(
+            connection_factory=lambda: connection,
+            llm_client_factory=lambda: llm_client,
+        )
+    )
+
+    response = client.post(
+        "/api/snowflake/query",
+        json={
+            "warehouse": "COMPUTE_WH",
+            "database": "RBAC_DEV",
+            "schema": "SAMPLE_DATA",
+            "table": "GAS_SAMPLE",
+            "question": "How many rows are in this table?",
+            "columns": [
+                {
+                    "name": "ORDER_ID",
+                    "dataType": "NUMBER",
+                    "description": "Unique order identifier.",
+                    "nullable": "NO",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "completed",
+        "model": "test-query-model",
+        "sql": (
+            'SELECT * FROM (\nSELECT COUNT(*) AS ORDER_COUNT FROM "RBAC_DEV".'
+            '"SAMPLE_DATA"."GAS_SAMPLE"\n) AS generated_query\nLIMIT 100'
+        ),
+        "explanation": "Counts rows in the selected table.",
+        "columns": ["ORDER_COUNT"],
+        "rows": [{"ORDER_COUNT": 2}],
+        "rowCount": 1,
+    }
+    assert connection.cursor_instance.executed_sql == [
+        'USE WAREHOUSE "COMPUTE_WH"',
+        (
+            'SELECT * FROM (\nSELECT COUNT(*) AS ORDER_COUNT FROM "RBAC_DEV".'
+            '"SAMPLE_DATA"."GAS_SAMPLE"\n) AS generated_query\nLIMIT 100'
+        ),
+    ]
+    assert llm_client.responses.kwargs["model"] == "test-query-model"
+    assert "How many rows are in this table?" in str(llm_client.responses.kwargs["input"])
 
 
 def test_fetch_snowflake_identity_returns_current_user_and_database() -> None:

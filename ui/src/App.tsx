@@ -4,6 +4,7 @@ import {
   ConnectionStatus,
   DescriptionAnalysisColumn,
   MetadataDescriptionAnalysis,
+  PlainTextTableQueryResult,
   TableMetadata,
   TableSummary,
   getTableMetadata,
@@ -12,6 +13,7 @@ import {
   listSchemas,
   listTables,
   listWarehouses,
+  runPlainTextTableQuery,
   runMetadataDescriptionAnalysis,
   saveColumnDescriptions,
   suggestColumnDescriptions,
@@ -41,7 +43,10 @@ export default function App() {
   const [analysisState, setAnalysisState] = useState<LoadState>("idle");
   const [saveState, setSaveState] = useState<LoadState>("idle");
   const [suggestionState, setSuggestionState] = useState<LoadState>("idle");
+  const [queryState, setQueryState] = useState<LoadState>("idle");
   const [analysisResult, setAnalysisResult] = useState<MetadataDescriptionAnalysis | null>(null);
+  const [queryResult, setQueryResult] = useState<PlainTextTableQueryResult | null>(null);
+  const [queryText, setQueryText] = useState("");
   const [editedDescriptions, setEditedDescriptions] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
 
@@ -191,6 +196,9 @@ export default function App() {
       setAnalysisState("idle");
       setSaveState("idle");
       setSuggestionState("idle");
+      setQueryState("idle");
+      setQueryResult(null);
+      setQueryText("");
       setTableState("ready");
     } catch (error) {
       setTableState("error");
@@ -217,6 +225,9 @@ export default function App() {
       setAnalysisState("idle");
       setSaveState("idle");
       setSuggestionState("idle");
+      setQueryState("idle");
+      setQueryResult(null);
+      setQueryText("");
       setMetadataState("ready");
       openView("metadata");
     } catch (error) {
@@ -234,7 +245,9 @@ export default function App() {
     setAnalysisState("loading");
     setMessage("");
     try {
-      const analysis = await runMetadataDescriptionAnalysis(selectedMetadata);
+      const analysis = await runMetadataDescriptionAnalysis(
+        metadataWithEditedDescriptions(selectedMetadata, editedDescriptions),
+      );
       setAnalysisResult(analysis);
       setAnalysisState("ready");
     } catch (error) {
@@ -280,7 +293,9 @@ export default function App() {
     setSuggestionState("loading");
     setMessage("");
     try {
-      const response = await suggestColumnDescriptions(selectedMetadata);
+      const response = await suggestColumnDescriptions(
+        metadataWithEditedDescriptions(selectedMetadata, editedDescriptions),
+      );
       setEditedDescriptions((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -296,6 +311,36 @@ export default function App() {
     } catch (error) {
       setSuggestionState("error");
       setMessage(error instanceof Error ? error.message : "Unable to suggest descriptions.");
+    }
+  }
+
+  async function runQuery() {
+    if (!selectedMetadata) {
+      setMessage("Select table metadata before running a query.");
+      return;
+    }
+    if (!selectedWarehouse) {
+      setMessage("Select a warehouse before running a query.");
+      return;
+    }
+    if (!queryText.trim()) {
+      setMessage("Enter a plain-text question before running a query.");
+      return;
+    }
+
+    setQueryState("loading");
+    setMessage("");
+    try {
+      const result = await runPlainTextTableQuery({
+        ...metadataWithEditedDescriptions(selectedMetadata, editedDescriptions),
+        warehouse: selectedWarehouse,
+        question: queryText.trim(),
+      });
+      setQueryResult(result);
+      setQueryState("ready");
+    } catch (error) {
+      setQueryState("error");
+      setMessage(error instanceof Error ? error.message : "Unable to run query.");
     }
   }
 
@@ -630,6 +675,72 @@ export default function App() {
                   ) : null}
                 </div>
 
+                <div className="panel query-panel">
+                  <div className="panel-heading query-heading">
+                    <div>
+                      <h2>Query</h2>
+                      <p>
+                        {selectedMetadata
+                          ? `${selectedMetadata.database}.${selectedMetadata.schema}.${selectedMetadata.table}`
+                          : "Selected table"}
+                      </p>
+                    </div>
+                    <button
+                      className="metadata-save-action"
+                      type="button"
+                      onClick={() => void runQuery()}
+                      disabled={!selectedMetadata || queryState === "loading"}
+                    >
+                      {queryState === "loading" ? "Running" : "Run Query"}
+                    </button>
+                  </div>
+
+                  <div className="query-workspace">
+                    <label className="query-label">
+                      <span>Question</span>
+                      <textarea
+                        value={queryText}
+                        onChange={(event) => setQueryText(event.target.value)}
+                        placeholder="Ask a question about the selected table"
+                      />
+                    </label>
+
+                    {queryResult ? (
+                      <div className="query-result">
+                        <div className="query-sql">
+                          <p>Generated SQL</p>
+                          <pre>{queryResult.sql}</pre>
+                        </div>
+                        <div className="query-explanation">
+                          <p>{queryResult.explanation || "Query executed."}</p>
+                          <span>{queryResult.rowCount} rows returned</span>
+                        </div>
+                        <div className="query-table" role="table" aria-label="Query results">
+                          <div className="query-row query-header" role="row">
+                            {queryResult.columns.map((column) => (
+                              <span role="columnheader" key={column}>
+                                {column}
+                              </span>
+                            ))}
+                          </div>
+                          {queryResult.rows.map((row, rowIndex) => (
+                            <div className="query-row" role="row" key={`query-row-${rowIndex}`}>
+                              {queryResult.columns.map((column) => (
+                                <span role="cell" key={`${rowIndex}-${column}`}>
+                                  {formatQueryValue(row[column])}
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="empty-state">
+                        {queryState === "loading" ? "Generating SQL and querying Snowflake" : "No query run yet"}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </>
             ) : null}
           </div>
@@ -657,6 +768,19 @@ function descriptionsByColumnName(metadata: TableMetadata): Record<string, strin
   return Object.fromEntries(metadata.columns.map((column) => [column.name, column.description]));
 }
 
+function metadataWithEditedDescriptions(
+  metadata: TableMetadata,
+  descriptions: Record<string, string>,
+): TableMetadata {
+  return {
+    ...metadata,
+    columns: metadata.columns.map((column) => ({
+      ...column,
+      description: descriptions[column.name] ?? column.description,
+    })),
+  };
+}
+
 function buildAnalysisByColumnName(
   analysis: MetadataDescriptionAnalysis | null,
 ): Record<string, DescriptionAnalysisColumn> {
@@ -668,4 +792,14 @@ function buildAnalysisByColumnName(
       table.columns.map((column) => [column.column_name.toUpperCase(), column]),
     ),
   );
+}
+
+function formatQueryValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
