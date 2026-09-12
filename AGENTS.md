@@ -184,7 +184,23 @@ The harness is also relevant to UI/API development because the product direction
 
 ## Branch And PR Workflow
 
-- Start new user-requested implementation work on a new branch unless the user asks to continue the current branch.
+- All implementation, documentation, test, harness, UI, and configuration changes should happen on a focused branch, not directly on `main`, unless the user explicitly requests otherwise.
+- Before starting new work, check out `main` and update it against `origin/main`:
+
+  ```bash
+  git status --short --branch
+  git checkout main
+  git fetch origin main
+  git pull --rebase origin main
+  ```
+
+- Create a new branch from the updated `main` before editing files:
+
+  ```bash
+  git checkout -b <focused-branch-name>
+  ```
+
+- Continue an existing branch only when the user asks to continue that branch or the current task is clearly follow-up work for an unmerged branch.
 - Use focused commit messages that describe the behavior changed.
 - Run relevant tests before committing when feasible.
 - Push branches and open PRs when requested and network access is available.
