@@ -4,9 +4,9 @@ from openai_snowflake_agent_context.chatgpt_plugin import (
     SampleTableRequest,
     build_ai_plugin_manifest,
     build_openapi_schema,
-    execute_sample_table,
     execute_format_progress_update,
     execute_metadata_description_analysis,
+    execute_sample_table,
 )
 
 

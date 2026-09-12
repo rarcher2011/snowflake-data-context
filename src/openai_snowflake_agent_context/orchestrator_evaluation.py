@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .agent_harness import HarnessReport, MemoryRecord, WorkItem
 from .agent_orchestrator import AgentOrchestrator, MultiAgentPlan, OrchestratorDecision

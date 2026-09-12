@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 
 from .metadata import SnowflakeConnection, TableContext
 from .metadata_analysis import parse_column_description
@@ -169,12 +170,12 @@ def _parse_suggestions(response_text: str) -> tuple[ColumnDescriptionSuggestion,
 
     raw_columns = payload.get("columns", payload.get("suggestions"))
     if not isinstance(raw_columns, list):
-        raise ValueError("OpenAI response must include a columns array.")
+        raise TypeError("OpenAI response must include a columns array.")
 
     suggestions: list[ColumnDescriptionSuggestion] = []
     for raw_column in raw_columns:
         if not isinstance(raw_column, dict):
-            raise ValueError("Each column suggestion must be an object.")
+            raise TypeError("Each column suggestion must be an object.")
         name = _required_text(raw_column, "name")
         description = _required_text(raw_column, "description")
         rationale = raw_column.get("rationale")
@@ -197,7 +198,7 @@ def _cursor_column_names(cursor: object) -> list[str]:
         if isinstance(item, Sequence) and not isinstance(item, (str, bytes)) and item:
             names.append(str(item[0]))
         elif hasattr(item, "name"):
-            names.append(str(getattr(item, "name")))
+            names.append(str(item.name))
     return names
 
 

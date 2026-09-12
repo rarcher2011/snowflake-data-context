@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Protocol, TypeVar
 from urllib.parse import urlparse
 
-
 SUPPORTED_REMOTE_BACKENDS = {"s3", "gcs", "google_doc"}
 ReaderT = TypeVar("ReaderT")
 

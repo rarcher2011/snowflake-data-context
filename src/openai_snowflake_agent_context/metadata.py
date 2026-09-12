@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 from .config import SnowflakeContextConfig
 
 if TYPE_CHECKING:
+    from .description_suggestions import ColumnDescriptionSuggestionResult, OpenAIClient
     from .description_updates import (
         DescriptionUpdateRequest,
         SnowflakeDescriptionUpdateResult,
     )
-    from .description_suggestions import ColumnDescriptionSuggestionResult, OpenAIClient
     from .metadata_analysis import SchemaDescriptionAnalysis
     from .sampling import SampledTableResult
 

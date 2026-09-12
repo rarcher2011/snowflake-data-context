@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .metadata import TableContext
-
 
 QUALITY_MISSING = "missing"
 QUALITY_WEAK = "weak"

@@ -65,9 +65,10 @@ class FakeOpenAIResponse:
 
 
 class FakeStructuredOpenAIResponse:
-    output = [
-        FakeResponseOutput("The structured response text is extracted."),
-    ]
+    def __init__(self) -> None:
+        self.output = [
+            FakeResponseOutput("The structured response text is extracted."),
+        ]
 
 
 class FakeOpenAIResponses:

@@ -4,8 +4,8 @@ from pathlib import Path
 from openai_snowflake_agent_context.agent_harness import (
     HarnessProgressUpdate,
     detect_status_mismatches,
-    format_progress_update,
     find_latest_memory,
+    format_progress_update,
     initialize_agent_session,
     load_harness_config,
     load_next_work,
@@ -257,19 +257,16 @@ progress = "gdoc://progress-doc"
     assert progress.appended == [
         (
             "progress-doc",
-            "\n".join(
-                [
-                    "",
-                    "## Agent Progress Update - 2026-07-17T12:30:00+00:00",
-                    "",
-                    "Status: completed",
-                    "Work ID: WORK-15",
-                    "",
-                    "Metadata description analysis completed.",
-                    "",
-                    "Completion: work marked complete.",
-                    "",
-                ]
+            (
+                "\n"
+                "## Agent Progress Update - 2026-07-17T12:30:00+00:00\n"
+                "\n"
+                "Status: completed\n"
+                "Work ID: WORK-15\n"
+                "\n"
+                "Metadata description analysis completed.\n"
+                "\n"
+                "Completion: work marked complete.\n"
             ),
         )
     ]

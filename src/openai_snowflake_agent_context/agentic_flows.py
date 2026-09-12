@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 
 from .agent_harness import WorkItem
 from .agent_orchestrator import AgentOrchestrator, MultiAgentPlan, OrchestratorDecision
