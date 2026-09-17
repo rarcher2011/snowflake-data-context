@@ -29,4 +29,3 @@ def sample():
 
 analysis = provider.analyze_schema_descriptions()
 analysis.print_context()
-import pdb; pdb.set_trace()
