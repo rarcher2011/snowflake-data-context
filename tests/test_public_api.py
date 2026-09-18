@@ -29,13 +29,16 @@ from openai_snowflake_agent_context import (
     build_openapi_schema,
     build_private_key_connection_kwargs,
     build_sample_table_sql,
+    build_snowflake_context,
     connect_with_private_key,
     create_app,
     create_data_analyst_eval_run,
+    format_table_context,
     load_private_key_der,
     run_data_analyst_agent,
     run_orchestrator_evaluation,
     sample_table,
+    with_snowflake_context,
 )
 
 
@@ -69,13 +72,16 @@ def test_public_api_exports_core_types() -> None:
     assert package.build_openapi_schema is build_openapi_schema
     assert package.build_private_key_connection_kwargs is build_private_key_connection_kwargs
     assert package.build_sample_table_sql is build_sample_table_sql
+    assert package.build_snowflake_context is build_snowflake_context
     assert package.connect_with_private_key is connect_with_private_key
     assert package.create_app is create_app
     assert package.create_data_analyst_eval_run is create_data_analyst_eval_run
+    assert package.format_table_context is format_table_context
     assert package.load_private_key_der is load_private_key_der
     assert package.run_data_analyst_agent is run_data_analyst_agent
     assert package.run_orchestrator_evaluation is run_orchestrator_evaluation
     assert package.sample_table is sample_table
+    assert package.with_snowflake_context is with_snowflake_context
     assert sorted(package.__all__) == [
         "AgentAssignment",
         "AgentOrchestrator",
@@ -106,11 +112,14 @@ def test_public_api_exports_core_types() -> None:
         "build_openapi_schema",
         "build_private_key_connection_kwargs",
         "build_sample_table_sql",
+        "build_snowflake_context",
         "connect_with_private_key",
         "create_app",
         "create_data_analyst_eval_run",
+        "format_table_context",
         "load_private_key_der",
         "run_data_analyst_agent",
         "run_orchestrator_evaluation",
         "sample_table",
+        "with_snowflake_context",
     ]

@@ -22,7 +22,7 @@ The current suite covers the repository scaffold, public API, long-running harne
 
 - `tests/test_public_api.py` verifies the exported package surface.
 - `tests/test_config.py` verifies safe default configuration and immutability.
-- `tests/test_metadata_provider.py` verifies the current provider contract, the `TableContext` data object, and `xfail` outlines for formatter and OpenAI wrapper behavior.
+- `tests/test_metadata_provider.py` verifies the current provider contract, the `TableContext` data object, formatter behavior, and the OpenAI wrapper contract.
 - `tests/test_agent_harness.py` verifies local harness config loading, latest-memory parsing, JSON status loading, Markdown work queue parsing, mismatch detection, and session context generation.
 - `tests/test_agent_harness_locations.py` verifies local/S3/GCS/Google Docs location specs, object-store URI parsing, Google Doc ID parsing, remote memory/status/work reads with fake readers, and remote config declaration.
 - `tests/test_agent_harness_cloud.py` verifies the optional boto3 S3, Google Cloud Storage, and Google Docs adapter behavior using fake SDK clients.
@@ -193,8 +193,7 @@ Expected modules:
 
 Exit criteria:
 
-- Remove or replace the formatter `xfail` in `tests/test_metadata_provider.py`.
-- Add fixture-driven formatter tests under `tests/fixtures/`.
+- Extend formatter coverage with fixture-driven tests under `tests/fixtures/`.
 
 ### Slice 2: Snowflake SQL Builders
 
@@ -278,7 +277,7 @@ Expected modules:
 
 Exit criteria:
 
-- Remove or replace the OpenAI wrapper `xfail` in `tests/test_metadata_provider.py`.
+- Extend the OpenAI wrapper tests for additional SDK request shapes.
 - Wrapper tests use mocked callables only.
 
 ### Slice 6: Harness Persistence and Remote Writes
