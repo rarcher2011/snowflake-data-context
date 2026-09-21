@@ -30,13 +30,16 @@ __all__ = [
     "build_openapi_schema",
     "build_private_key_connection_kwargs",
     "build_sample_table_sql",
+    "build_snowflake_context",
     "connect_with_private_key",
     "create_app",
     "create_data_analyst_eval_run",
+    "format_table_context",
     "load_private_key_der",
     "run_data_analyst_agent",
     "run_orchestrator_evaluation",
     "sample_table",
+    "with_snowflake_context",
 ]
 
 from .agent_orchestrator import (
@@ -76,7 +79,9 @@ from .description_updates import (
     SnowflakeDescriptionUpdatePlan,
     SnowflakeDescriptionUpdateResult,
 )
+from .formatter import format_table_context
 from .metadata import SnowflakeMetadataProvider
 from .metadata_analysis import SchemaDescriptionAnalysis, analyze_table_metadata_descriptions
+from .openai_extensions import build_snowflake_context, with_snowflake_context
 from .orchestrator_evaluation import OrchestratorEvaluationResult, run_orchestrator_evaluation
 from .sampling import SampledTableResult, build_sample_table_sql, sample_table

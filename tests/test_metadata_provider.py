@@ -369,8 +369,7 @@ def test_provider_suggest_column_descriptions_requires_table_metadata() -> None:
         provider.suggest_column_descriptions("ANALYTICS.PUBLIC.MISSING", FakeOpenAIClient())
 
 
-@pytest.mark.xfail(reason="Formatter module will be implemented during the next TDD phase.")
-def test_future_formatter_packs_table_context_into_markdown() -> None:
+def test_formatter_packs_table_context_into_markdown() -> None:
     from openai_snowflake_agent_context.formatter import format_table_context
 
     table = TableContext(
@@ -389,21 +388,13 @@ def test_future_formatter_packs_table_context_into_markdown() -> None:
     assert "ORDER_ID NUMBER" in markdown
 
 
-@pytest.mark.xfail(reason="OpenAI wrapper will be implemented after context formatting exists.")
-def test_future_openai_wrapper_preserves_callable_result() -> None:
+def test_openai_wrapper_preserves_callable_result() -> None:
     from openai_snowflake_agent_context.openai_extensions import with_snowflake_context
 
     def fake_openai_call(**kwargs: object) -> dict[str, object]:
         return {"kwargs": kwargs}
 
-    provider = SnowflakeMetadataProvider(
-        FakeConnection(),
-        SnowflakeContextConfig(
-            account="test-account",
-            user="analyst",
-            warehouse="agent_wh",
-        ),
-    )
+    provider = FakeMetadataProvider()
 
     result = with_snowflake_context(
         fake_openai_call,
@@ -414,3 +405,6 @@ def test_future_openai_wrapper_preserves_callable_result() -> None:
     )
 
     assert result["kwargs"]["model"] == "gpt-4.1"
+    assert result["kwargs"]["input"] == "Write a query."
+    assert "ANALYTICS.PUBLIC.ORDERS" in str(result["kwargs"]["instructions"])
+    assert provider.requested_table_names == ["ANALYTICS.PUBLIC.ORDERS"]

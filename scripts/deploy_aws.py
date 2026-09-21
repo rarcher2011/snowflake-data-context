@@ -13,7 +13,6 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DEFAULT_RUNTIME = "python3.11"
 DEFAULT_HANDLER = "openai_snowflake_agent_context.aws_lambda.handler"
 
