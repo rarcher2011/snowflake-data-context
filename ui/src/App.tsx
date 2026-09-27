@@ -415,16 +415,18 @@ export default function App() {
             <p className="breadcrumb">Workspace › Snowflake Context</p>
             <h1>{isMetadataView ? "Metadata Workspace" : "Agent Workspace"}</h1>
           </div>
-          <div className="top-actions">
-            <button
-              className="primary-action top-action"
-              type="button"
-              onClick={() => void runAnalysis()}
-              disabled={!selectedMetadata || analysisState === "loading"}
-            >
-              {analysisState === "loading" ? "Analyzing" : "Run Analysis"}
-            </button>
-          </div>
+          {isMetadataView && (
+            <div className="top-actions">
+              <button
+                className="primary-action top-action"
+                type="button"
+                onClick={() => void runAnalysis()}
+                disabled={!selectedMetadata || analysisState === "loading"}
+              >
+                {analysisState === "loading" ? "Analyzing" : "Run Analysis"}
+              </button>
+            </div>
+          )}
         </header>
 
         <section
