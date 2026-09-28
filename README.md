@@ -132,8 +132,15 @@ The UI backend exposes these endpoints:
 - `POST /api/snowflake/description-suggestions`
 - `POST /api/snowflake/column-descriptions`
 - `POST /api/snowflake/query`
+- `POST /api/snowflake/discovery-report`
 
-The Home page shows connection setup, scope selection, and table discovery. The left-side Metadata page shows the selected table schema. Click a table row's `Metadata` button to load its columns. `Run Analysis` scores the current metadata and adds quality, score, and recommendation columns directly to the schema table. `Suggest` sends the current table metadata to the configured OpenAI SDK client and fills the editable description cells with suggested descriptions. `Save` submits the edited descriptions to the scaffolded save endpoint; it validates and accepts the payload but does not write to Snowflake yet. The Query section accepts a plain-text question, sends the question and selected table metadata to the configured LLM, validates the generated SQL as read-only, runs it in Snowflake, and returns a preview of the result rows.
+The UI has three tabs: **Home**, **Metadata**, and **Query**.
+
+The **Home** tab shows connection setup, scope selection (warehouse, database, schema), and a table list. Check a table row to select it, then click **Load Metadata** to open its column schema in the Metadata tab.
+
+The **Metadata** tab shows the selected table's columns with data types, nullable flags, and existing descriptions. **Run Analysis** scores the metadata inline and adds quality, score, and recommendation columns. **Suggest** sends the current metadata to the configured OpenAI SDK client and fills editable description cells with draft suggestions, confirmed with a toast notification on success. **Save** submits edited descriptions to the scaffolded save endpoint; it validates and accepts the payload but does not write to Snowflake yet.
+
+The **Query** tab accepts a plain-text question about the table loaded in the Metadata tab. The backend sends the question and column metadata to the configured LLM, validates the generated SQL as a single read-only `SELECT` or `WITH` statement, runs it in Snowflake, and returns the generated SQL with a preview of result rows.
 
 The backend uses the `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_PRIVATE_KEY_PATH`, and optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_DATABASE`, and `SNOWFLAKE_SCHEMA` environment variables to connect to Snowflake with private-key authentication and run `CURRENT_USER`, `SHOW WAREHOUSES`, `SHOW DATABASES`, `SHOW SCHEMAS`, `SHOW TABLES`, and `INFORMATION_SCHEMA.COLUMNS` queries.
 
@@ -403,10 +410,11 @@ The long-term target is an agent-assisted analytics loop: discover data, identif
 
 ## Target Roadmap
 
-- Add typed discovery reports for Snowflake schemas and business domains.
-- Add first-class data gap, data issue, recommendation, and transformation candidate models.
+- Connect the description save endpoint to execute Snowflake `COMMENT ON COLUMN` statements.
+- Add `POST /api/snowflake/data-gaps` to identify tables or columns with missing, weak, or inconsistent data.
+- Add `POST /api/snowflake/transformation-candidates` to surface tables that are good candidates for modelling.
+- Add `POST /api/snowflake/monitoring-snapshot` for point-in-time schema health snapshots.
 - Extend the harness status format to track unresolved data gaps and active analysis goals.
-- Add monitoring snapshots that compare current metadata health with previous runs.
 - Expose discovery reports and monitoring summaries through ChatGPT Actions and deployable service endpoints.
 
 ## Long-Running Agent Harness
@@ -450,18 +458,18 @@ print(analysis.to_context_markdown())
 
 ## UI Metadata Review Workflow
 
-The React UI exposes the same metadata quality loop in a browser:
+The React UI exposes the metadata quality loop in a browser across three tabs:
 
-1. Select a warehouse, database, and schema.
-2. Run the table list.
-3. Open a table's metadata.
-4. Run analysis to add quality, score, and recommendation columns to the schema table.
+1. Select a warehouse, database, and schema on the **Home** tab.
+2. Run the table list to see all tables with their description status.
+3. Check the checkbox next to a table to select it, then click **Load Metadata**.
+4. On the **Metadata** tab, click **Run Analysis** to score descriptions inline and add quality, score, and recommendation columns.
 5. Edit column descriptions directly in the schema table.
-6. Use `Suggest` to ask the configured OpenAI SDK client for draft descriptions based on the current metadata.
-7. Use `Save` to submit reviewed descriptions to `POST /api/snowflake/column-descriptions`.
-8. Use the Query section to ask a plain-text question about the selected table and execute the generated read-only SQL in Snowflake.
+6. Click **Suggest** to ask the configured OpenAI SDK client for draft descriptions. A toast notification confirms when suggestions land.
+7. Click **Save** to submit reviewed descriptions to `POST /api/snowflake/column-descriptions`.
+8. Switch to the **Query** tab to ask a plain-text question about the selected table and execute the generated read-only SQL in Snowflake.
 
-The save route is intentionally scaffolded right now. It accepts the edited description payload and returns a non-persisted status so the frontend workflow can be developed before Snowflake `COMMENT ON COLUMN` execution is connected.
+The save route accepts the edited description payload and returns a non-persisted status. Snowflake `COMMENT ON COLUMN` execution is not yet connected.
 
 The LLM suggestion route is `POST /api/snowflake/description-suggestions`. It accepts the selected table metadata, calls the OpenAI Responses API through the configured SDK client, expects JSON suggestions, and returns them to the UI for review. The default unit tests use fake clients; live OpenAI and Snowflake calls should stay out of default tests.
 
@@ -517,4 +525,4 @@ Use `scripts/deploy_aws.py` to package and deploy the ChatGPT Actions adapter to
 
 ## Status
 
-In progress
+Working prototype under active development. Core Snowflake connectivity, metadata review, description analysis, LLM-backed description suggestions, plain-text SQL query, and schema discovery are functional. The description save endpoint is scaffolded and does not yet write to Snowflake. Planned endpoints for data gap analysis, transformation candidates, and monitoring snapshots are tracked in [todo.md](todo.md).
