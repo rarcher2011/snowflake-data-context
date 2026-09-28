@@ -6,6 +6,9 @@ from openai_snowflake_agent_context.ui_backend import (
     create_env_connection_factory,
     create_ui_app,
     describe_snowflake_table,
+    detect_table_relationships,
+    fetch_schema_columns,
+    fetch_schema_table_row_counts,
     fetch_snowflake_identity,
     list_snowflake_databases,
     list_snowflake_schemas,
@@ -119,6 +122,62 @@ class FakeLLMResponses:
 class FakeLLMClient:
     def __init__(self, output_text: str) -> None:
         self.responses = FakeLLMResponses(output_text)
+
+
+class FakeDiscoveryCursor:
+    """Cursor that responds to the three discovery-report query shapes."""
+
+    def __init__(self) -> None:
+        self.executed_sql: list[str] = []
+        self.description: list[tuple[str]] = []
+
+    def execute(self, sql: str) -> object:
+        self.executed_sql.append(sql)
+        if "INFORMATION_SCHEMA.COLUMNS" in sql:
+            self.description = [
+                ("TABLE_NAME",),
+                ("COLUMN_NAME",),
+                ("DATA_TYPE",),
+                ("COMMENT",),
+                ("IS_NULLABLE",),
+                ("ORDINAL_POSITION",),
+            ]
+        elif "INFORMATION_SCHEMA.TABLES" in sql:
+            self.description = [("TABLE_NAME",), ("ROW_COUNT",)]
+        elif "TABLESAMPLE" in sql:
+            self.description = [("_row_count",)]
+        return self
+
+    def fetchall(self) -> list[object]:
+        last = self.executed_sql[-1]
+        if "INFORMATION_SCHEMA.COLUMNS" in last:
+            return [
+                ("ORDERS", "ORDER_ID", "NUMBER", "Unique order identifier.", "NO", 1),
+                ("ORDERS", "CUSTOMER_ID", "NUMBER", "", "YES", 2),
+                ("CUSTOMERS", "CUSTOMER_ID", "NUMBER", "Primary key.", "NO", 1),
+                ("CUSTOMERS", "EMAIL", "VARCHAR", "", "YES", 2),
+            ]
+        if "INFORMATION_SCHEMA.TABLES" in last:
+            return [
+                ("ORDERS", "50000"),
+                ("CUSTOMERS", "10000"),
+            ]
+        if "TABLESAMPLE" in last:
+            return [(47821,)]
+        return []
+
+
+class FakeDiscoveryConnection:
+    def __init__(self) -> None:
+        self.cursor_instance = FakeDiscoveryCursor()
+        self.closed = False
+
+    def cursor(self) -> FakeDiscoveryCursor:
+        return self.cursor_instance
+
+    def close(self) -> None:
+        self.closed = True
+
 
 def test_list_snowflake_warehouses_executes_show_warehouses_and_closes_connection() -> None:
     connection = FakeConnection()
@@ -579,3 +638,211 @@ def test_create_env_connection_factory_returns_callable() -> None:
     )
 
     assert callable(factory)
+
+
+# ---------------------------------------------------------------------------
+# Discovery report tests
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_schema_columns_executes_single_information_schema_query() -> None:
+    connection = FakeDiscoveryConnection()
+
+    columns = fetch_schema_columns(
+        lambda: connection,
+        warehouse="COMPUTE_WH",
+        database="ANALYTICS",
+        schema="PUBLIC",
+    )
+
+    assert len(columns) == 4
+    assert columns[0]["table_name"] == "ORDERS"
+    assert columns[0]["column_name"] == "ORDER_ID"
+    assert columns[0]["data_type"] == "NUMBER"
+    assert columns[0]["description"] == "Unique order identifier."
+    assert columns[2]["table_name"] == "CUSTOMERS"
+    assert connection.cursor_instance.executed_sql == [
+        'USE WAREHOUSE "COMPUTE_WH"',
+        (
+            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COMMENT, IS_NULLABLE, ORDINAL_POSITION "
+            'FROM "ANALYTICS".INFORMATION_SCHEMA.COLUMNS '
+            "WHERE UPPER(TABLE_SCHEMA) = UPPER('PUBLIC') "
+            "ORDER BY TABLE_NAME, ORDINAL_POSITION"
+        ),
+    ]
+    assert connection.closed is True
+
+
+def test_fetch_schema_table_row_counts_uses_information_schema_tables() -> None:
+    connection = FakeDiscoveryConnection()
+
+    counts = fetch_schema_table_row_counts(
+        lambda: connection,
+        database="ANALYTICS",
+        schema="PUBLIC",
+    )
+
+    assert counts == {"ORDERS": 50000, "CUSTOMERS": 10000}
+    assert connection.cursor_instance.executed_sql == [
+        (
+            "SELECT TABLE_NAME, ROW_COUNT "
+            'FROM "ANALYTICS".INFORMATION_SCHEMA.TABLES '
+            "WHERE UPPER(TABLE_SCHEMA) = UPPER('PUBLIC') "
+            "AND TABLE_TYPE IN ('BASE TABLE', 'VIEW') "
+            "ORDER BY ROW_COUNT DESC NULLS LAST"
+        ),
+    ]
+    assert connection.closed is True
+
+
+def test_detect_table_relationships_finds_fk_column_patterns() -> None:
+    tables_columns = {
+        "ORDERS": [
+            {"column_name": "ORDER_ID", "data_type": "NUMBER"},
+            {"column_name": "CUSTOMER_ID", "data_type": "NUMBER"},
+        ],
+        "CUSTOMERS": [
+            {"column_name": "CUSTOMER_ID", "data_type": "NUMBER"},
+        ],
+    }
+
+    relationships = detect_table_relationships(tables_columns)
+
+    assert len(relationships) == 1
+    assert relationships[0]["from_table"] == "ORDERS"
+    assert relationships[0]["from_column"] == "CUSTOMER_ID"
+    assert relationships[0]["to_table"] == "CUSTOMERS"
+    assert relationships[0]["relationship"] == "likely FK"
+
+
+def test_detect_table_relationships_ignores_own_pk() -> None:
+    tables_columns = {
+        "ORDERS": [
+            {"column_name": "ORDER_ID", "data_type": "NUMBER"},
+        ],
+    }
+
+    relationships = detect_table_relationships(tables_columns)
+
+    assert relationships == []
+
+
+def test_ui_app_discovery_report_returns_tables_and_stats(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("OPENAI_DISCOVERY_MODEL", "test-discovery-model")
+    llm_client = FakeLLMClient(
+        '{"tables":['
+        '{"name":"ORDERS","description":"Fact table for customer orders.",'
+        '"key_columns":["ORDER_ID","CUSTOMER_ID"],"purpose":"fact"},'
+        '{"name":"CUSTOMERS","description":"Customer dimension table.",'
+        '"key_columns":["CUSTOMER_ID","EMAIL"],"purpose":"dimension"}'
+        "]}"
+    )
+
+    connections_issued: list[FakeDiscoveryConnection] = []
+
+    def multi_connection_factory() -> FakeDiscoveryConnection:
+        conn = FakeDiscoveryConnection()
+        connections_issued.append(conn)
+        return conn
+
+    client = TestClient(
+        create_ui_app(
+            connection_factory=multi_connection_factory,
+            llm_client_factory=lambda: llm_client,
+        )
+    )
+
+    response = client.post(
+        "/api/snowflake/discovery-report",
+        json={
+            "database": "ANALYTICS",
+            "schema": "PUBLIC",
+            "warehouse": "COMPUTE_WH",
+            "max_tables_to_sample": 2,
+            "sample_percent": 1.0,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["model"] == "test-discovery-model"
+    assert payload["database"] == "ANALYTICS"
+    assert payload["schema"] == "PUBLIC"
+    assert payload["table_count"] == 2
+
+    table_names = [t["name"] for t in payload["tables"]]
+    assert "ORDERS" in table_names
+    assert "CUSTOMERS" in table_names
+
+    orders_table = next(t for t in payload["tables"] if t["name"] == "ORDERS")
+    assert orders_table["description"] == "Fact table for customer orders."
+    assert orders_table["purpose"] == "fact"
+    assert "ORDER_ID" in orders_table["key_columns"]
+    assert orders_table["estimated_row_count"] == 50000
+    assert orders_table["existing_description_coverage"]["total_columns"] == 2
+    assert orders_table["existing_description_coverage"]["described_columns"] == 1
+
+    assert len(payload["summary_stats"]) == 2
+    assert payload["summary_stats"][0]["table"] == "ORDERS"
+    assert payload["summary_stats"][0]["sampled"] is True
+
+    relationships = payload["relationships"]
+    assert any(
+        r["from_table"] == "ORDERS" and r["to_table"] == "CUSTOMERS"
+        for r in relationships
+    )
+
+    assert llm_client.responses.kwargs["model"] == "test-discovery-model"
+    llm_input_text = str(llm_client.responses.kwargs["input"])
+    assert "ORDERS" in llm_input_text
+    assert "CUSTOMERS" in llm_input_text
+
+
+def test_ui_app_discovery_report_returns_empty_for_schema_with_no_tables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("OPENAI_DISCOVERY_MODEL", "test-model")
+
+    class EmptyCursor:
+        executed_sql: list[str] = []
+        description: list[object] = []
+
+        def execute(self, sql: str) -> object:
+            self.executed_sql.append(sql)
+            return self
+
+        def fetchall(self) -> list[object]:
+            return []
+
+    class EmptyConnection:
+        def cursor(self) -> EmptyCursor:
+            return EmptyCursor()
+
+        def close(self) -> None:
+            pass
+
+    llm_client = FakeLLMClient('{"tables":[]}')
+    client = TestClient(
+        create_ui_app(
+            connection_factory=lambda: EmptyConnection(),
+            llm_client_factory=lambda: llm_client,
+        )
+    )
+
+    response = client.post(
+        "/api/snowflake/discovery-report",
+        json={"database": "ANALYTICS", "schema": "EMPTY_SCHEMA"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "empty"
+    assert payload["tables"] == []
+    assert payload["relationships"] == []
