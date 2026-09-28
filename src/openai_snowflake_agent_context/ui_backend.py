@@ -104,6 +104,16 @@ class PlainTextTableQueryRequest(BaseModel):
     row_limit: int = Field(default=100, ge=1, le=500)
 
 
+class DiscoveryReportRequest(BaseModel):
+    """Request body for the schema discovery report endpoint."""
+
+    warehouse: str | None = None
+    database: str
+    schema_name: str = Field(alias="schema")
+    max_tables_to_sample: int = Field(default=3, ge=1, le=10)
+    sample_percent: float = Field(default=1.0, ge=0.1, le=10.0)
+
+
 def list_snowflake_warehouses(connection_factory: ConnectionFactory) -> list[str]:
     """Return warehouse names from Snowflake using `SHOW WAREHOUSES`."""
 
@@ -453,6 +463,22 @@ def create_ui_app(
             model = _query_generation_model(environ)
             factory = connection_factory or create_env_connection_factory(environ)
             return run_plain_text_table_query(
+                payload=payload,
+                connection_factory=factory,
+                llm_client=client,
+                model=model,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/snowflake/discovery-report")
+    def discovery_report(payload: DiscoveryReportRequest) -> dict[str, object]:
+        try:
+            environ = dict(os.environ)
+            client = llm_client_factory() if llm_client_factory else create_env_llm_client(environ)
+            model = _discovery_report_model(environ)
+            factory = connection_factory or create_env_connection_factory(environ)
+            return run_discovery_report(
                 payload=payload,
                 connection_factory=factory,
                 llm_client=client,
@@ -846,6 +872,15 @@ def _quote_snowflake_identifier_path(*parts: str) -> str:
     return ".".join(_quote_snowflake_identifier(part) for part in parts)
 
 
+def _strip_markdown_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+        if text.endswith("```"):
+            text = text[: text.rfind("```")]
+    return text.strip()
+
+
 def _llm_description_suggestion_payload(
     payload: MetadataDescriptionSuggestionRequest,
 ) -> dict[str, object]:
@@ -925,6 +960,402 @@ def _description_suggestion_model(environ: dict[str, str]) -> str:
 
 def _query_generation_model(environ: dict[str, str]) -> str:
     return environ.get("OPENAI_QUERY_MODEL") or environ.get("OPENAI_MODEL") or "gpt-4.1-mini"
+
+
+def _discovery_report_model(environ: dict[str, str]) -> str:
+    return environ.get("OPENAI_DISCOVERY_MODEL") or environ.get("OPENAI_MODEL") or "gpt-4.1-mini"
+
+
+# ---------------------------------------------------------------------------
+# Discovery report
+# ---------------------------------------------------------------------------
+
+_FK_SUFFIX_RE = re.compile(r"(_ID|_KEY|_FK|_REF)$", re.IGNORECASE)
+_DATE_TYPES = frozenset({"DATE", "TIMESTAMP", "TIMESTAMP_NTZ", "TIMESTAMP_LTZ", "TIMESTAMP_TZ", "DATETIME"})
+_NUMERIC_TYPES = frozenset({"NUMBER", "FLOAT", "DECIMAL", "INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "DOUBLE"})
+
+
+def fetch_schema_columns(
+    connection_factory: ConnectionFactory,
+    *,
+    warehouse: str | None = None,
+    database: str,
+    schema: str,
+) -> list[dict[str, object]]:
+    """Return all column metadata for a schema in a single INFORMATION_SCHEMA query."""
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(warehouse)}")
+        cursor.execute(
+            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COMMENT, IS_NULLABLE, ORDINAL_POSITION "
+            f"FROM {_quote_snowflake_identifier(database)}.INFORMATION_SCHEMA.COLUMNS "
+            f"WHERE UPPER(TABLE_SCHEMA) = UPPER({_quote_snowflake_literal(schema)}) "
+            "ORDER BY TABLE_NAME, ORDINAL_POSITION"
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "table_name": _row_field(row, 0, "TABLE_NAME") or "",
+                "column_name": _row_field(row, 1, "COLUMN_NAME") or "",
+                "data_type": _row_field(row, 2, "DATA_TYPE") or "",
+                "description": _row_field(row, 3, "COMMENT") or "",
+                "nullable": _normalize_nullable(_row_field(row, 4, "IS_NULLABLE")),
+                "ordinal": _row_field(row, 5, "ORDINAL_POSITION") or "",
+            }
+            for row in rows
+        ]
+    finally:
+        connection.close()
+
+
+def fetch_schema_table_row_counts(
+    connection_factory: ConnectionFactory,
+    *,
+    warehouse: str | None = None,
+    database: str,
+    schema: str,
+) -> dict[str, int]:
+    """Return estimated row counts from INFORMATION_SCHEMA.TABLES (no table scan)."""
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(warehouse)}")
+        cursor.execute(
+            "SELECT TABLE_NAME, ROW_COUNT "
+            f"FROM {_quote_snowflake_identifier(database)}.INFORMATION_SCHEMA.TABLES "
+            f"WHERE UPPER(TABLE_SCHEMA) = UPPER({_quote_snowflake_literal(schema)}) "
+            "AND TABLE_TYPE IN ('BASE TABLE', 'VIEW') "
+            "ORDER BY ROW_COUNT DESC NULLS LAST"
+        )
+        result: dict[str, int] = {}
+        for row in cursor.fetchall():
+            name = _row_field(row, 0, "TABLE_NAME") or ""
+            count_str = _row_field(row, 1, "ROW_COUNT")
+            result[name] = int(count_str) if count_str and count_str.isdigit() else 0
+        return result
+    finally:
+        connection.close()
+
+
+def fetch_table_sample_stats(
+    connection_factory: ConnectionFactory,
+    *,
+    warehouse: str | None = None,
+    database: str,
+    schema: str,
+    table: str,
+    columns: list[dict[str, object]],
+    sample_percent: float = 1.0,
+) -> dict[str, object]:
+    """Return sampled summary statistics for a table using TABLESAMPLE BERNOULLI."""
+    date_cols = [c for c in columns if str(c.get("data_type", "")).upper() in _DATE_TYPES][:2]
+    numeric_cols = [
+        c for c in columns
+        if str(c.get("data_type", "")).upper() in _NUMERIC_TYPES
+        and not _FK_SUFFIX_RE.search(str(c.get("column_name", "")))
+    ][:3]
+
+    select_parts = ["COUNT(*) AS _row_count"]
+    for col in date_cols:
+        quoted = _quote_snowflake_identifier(str(col["column_name"]))
+        select_parts.append(f"MIN({quoted}) AS _min_{col['column_name']}")
+        select_parts.append(f"MAX({quoted}) AS _max_{col['column_name']}")
+    for col in numeric_cols:
+        quoted = _quote_snowflake_identifier(str(col["column_name"]))
+        select_parts.append(f"AVG({quoted}) AS _avg_{col['column_name']}")
+        select_parts.append(f"MAX({quoted}) AS _max_{col['column_name']}")
+
+    table_ref = (
+        f"{_quote_snowflake_identifier(database)}"
+        f".{_quote_snowflake_identifier(schema)}"
+        f".{_quote_snowflake_identifier(table)}"
+    )
+    sql = (
+        f"SELECT {', '.join(select_parts)} "
+        f"FROM {table_ref} TABLESAMPLE BERNOULLI ({sample_percent})"
+    )
+
+    connection = connection_factory()
+    try:
+        cursor = connection.cursor()
+        if warehouse:
+            cursor.execute(f"USE WAREHOUSE {_quote_snowflake_identifier(warehouse)}")
+        cursor.execute(sql)
+        col_names = _cursor_column_names(cursor)
+        rows = cursor.fetchall()
+    finally:
+        connection.close()
+
+    if not rows:
+        return {"sampled": True, "sample_percent": sample_percent, "stats": {}}
+
+    row = rows[0]
+    record = _query_row_to_record(row, col_names)
+    stats: dict[str, object] = {}
+    for key, value in record.items():
+        if key == "_row_count":
+            continue
+        clean_key = key.lstrip("_")
+        stats[clean_key] = _serialize_stat(value)
+
+    sampled_count = record.get("_row_count")
+    return {
+        "sampled": True,
+        "sample_percent": sample_percent,
+        "sampled_row_count": int(sampled_count) if sampled_count is not None else None,
+        "stats": stats,
+    }
+
+
+def _serialize_stat(value: object) -> object:
+    if value is None:
+        return None
+    try:
+        import datetime
+        if isinstance(value, (datetime.date, datetime.datetime)):
+            return value.isoformat()
+    except Exception:  # noqa: BLE001
+        pass
+    if isinstance(value, float):
+        return round(value, 4)
+    return value
+
+
+def detect_table_relationships(
+    tables_columns: dict[str, list[dict[str, object]]],
+) -> list[dict[str, str]]:
+    """Detect likely FK relationships by matching column names to table names."""
+    table_names_upper = {name.upper(): name for name in tables_columns}
+    relationships: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+
+    for table_name, columns in tables_columns.items():
+        for col in columns:
+            col_name = str(col.get("column_name", ""))
+            if not _FK_SUFFIX_RE.search(col_name):
+                continue
+            stem = _FK_SUFFIX_RE.sub("", col_name).upper()
+            own = table_name.upper()
+            if stem == own or stem + "S" == own:
+                continue
+            # Match exact stem or common plural form (stem + S)
+            candidates = [stem, stem + "S"]
+            ref_table = None
+            for candidate in candidates:
+                if candidate in table_names_upper:
+                    ref_table = table_names_upper[candidate]
+                    break
+            if ref_table is None:
+                continue
+            key = (table_name, col_name, ref_table, "")
+            if key not in seen:
+                seen.add(key)
+                relationships.append(
+                    {
+                        "from_table": table_name,
+                        "from_column": col_name,
+                        "to_table": ref_table,
+                        "relationship": "likely FK",
+                    }
+                )
+
+    return relationships
+
+
+def _build_discovery_llm_prompt(
+    tables_columns: dict[str, list[dict[str, object]]],
+    row_counts: dict[str, int],
+    relationships: list[dict[str, str]],
+) -> str:
+    """Build a compact schema summary for the LLM — keeps token cost low."""
+    lines: list[str] = [
+        "Snowflake schema tables with columns (data_type [description if any]):"
+    ]
+    for table_name, columns in tables_columns.items():
+        count = row_counts.get(table_name, 0)
+        col_parts = []
+        for col in columns[:20]:  # cap columns per table to limit tokens
+            col_name = col.get("column_name", "")
+            data_type = col.get("data_type", "")
+            desc = col.get("description", "")
+            entry = f"{col_name} {data_type}"
+            if desc:
+                entry += f" [{desc[:60]}]"
+            col_parts.append(entry)
+        lines.append(f"\nTABLE {table_name} (~{count:,} rows): {', '.join(col_parts)}")
+
+    if relationships:
+        lines.append(
+            "\nDetected relationships: "
+            + "; ".join(
+                f"{r['from_table']}.{r['from_column']} -> {r['to_table']}"
+                for r in relationships
+            )
+        )
+
+    return "\n".join(lines)
+
+
+def _parse_discovery_llm_response(response_text: str) -> list[dict[str, object]]:
+    try:
+        payload = json.loads(_strip_markdown_fences(response_text))
+    except json.JSONDecodeError as exc:
+        raise ValueError("LLM discovery response did not contain valid JSON.") from exc
+    tables = payload.get("tables")
+    if not isinstance(tables, list):
+        raise TypeError("LLM discovery response must include a tables array.")
+    result: list[dict[str, object]] = []
+    for item in tables:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "name": str(item.get("name", "")),
+                "description": str(item.get("description", "")),
+                "key_columns": item.get("key_columns", []),
+                "purpose": str(item.get("purpose", "")),
+            }
+        )
+    return result
+
+
+def run_discovery_report(
+    *,
+    payload: DiscoveryReportRequest,
+    connection_factory: ConnectionFactory,
+    llm_client: LLMClient,
+    model: str,
+) -> dict[str, object]:
+    """Build a discovery report: schema overview, relationships, sampled stats, LLM descriptions."""
+
+    # 1. Fetch all column metadata in one query
+    all_columns = fetch_schema_columns(
+        connection_factory,
+        warehouse=payload.warehouse,
+        database=payload.database,
+        schema=payload.schema_name,
+    )
+
+    # Group columns by table
+    tables_columns: dict[str, list[dict[str, object]]] = {}
+    for col in all_columns:
+        tname = str(col["table_name"])
+        tables_columns.setdefault(tname, []).append(col)
+
+    if not tables_columns:
+        return {
+            "status": "empty",
+            "database": payload.database,
+            "schema": payload.schema_name,
+            "tables": [],
+            "relationships": [],
+            "summary_stats": [],
+        }
+
+    # 2. Get row count estimates (no table scan)
+    row_counts = fetch_schema_table_row_counts(
+        connection_factory,
+        warehouse=payload.warehouse,
+        database=payload.database,
+        schema=payload.schema_name,
+    )
+
+    # 3. Detect FK-style relationships
+    relationships = detect_table_relationships(tables_columns)
+
+    # 4. Sample the top N largest tables for summary stats
+    sorted_tables = sorted(tables_columns.keys(), key=lambda t: row_counts.get(t, 0), reverse=True)
+    tables_to_sample = sorted_tables[: payload.max_tables_to_sample]
+
+    summary_stats: list[dict[str, object]] = []
+    for table_name in tables_to_sample:
+        cols = tables_columns[table_name]
+        stats = fetch_table_sample_stats(
+            connection_factory,
+            warehouse=payload.warehouse,
+            database=payload.database,
+            schema=payload.schema_name,
+            table=table_name,
+            columns=cols,
+            sample_percent=payload.sample_percent,
+        )
+        summary_stats.append(
+            {
+                "table": table_name,
+                "estimated_row_count": row_counts.get(table_name, 0),
+                **stats,
+            }
+        )
+
+    # 5. Ask LLM for compact table descriptions — one call for the whole schema
+    compact_prompt = _build_discovery_llm_prompt(tables_columns, row_counts, relationships)
+    response = llm_client.responses.create(
+        model=model,
+        text={"format": {"type": "json_object"}},
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a data analyst. Given a Snowflake schema, return a JSON object with a "
+                    "tables array. Each item must include: name (string), description (1-2 sentence "
+                    "plain-English summary of the table's purpose), key_columns (array of the most "
+                    "analytically important column names, max 5), and purpose (one of: fact, dimension, "
+                    "staging, reference, log, unknown). Be concise — descriptions under 150 characters."
+                ),
+            },
+            {
+                "role": "user",
+                "content": compact_prompt,
+            },
+        ],
+        max_output_tokens=1000,
+    )
+    response_text = extract_response_text(response)
+    llm_tables = _parse_discovery_llm_response(response_text)
+
+    # Merge LLM descriptions with metadata
+    llm_by_name = {t["name"]: t for t in llm_tables}
+    tables_out: list[dict[str, object]] = []
+    for table_name in sorted_tables:
+        cols = tables_columns[table_name]
+        llm_info = llm_by_name.get(table_name, {})
+        tables_out.append(
+            {
+                "name": table_name,
+                "database": payload.database,
+                "schema": payload.schema_name,
+                "estimated_row_count": row_counts.get(table_name, 0),
+                "column_count": len(cols),
+                "description": llm_info.get("description", ""),
+                "purpose": llm_info.get("purpose", "unknown"),
+                "key_columns": llm_info.get("key_columns", []),
+                "existing_description_coverage": _description_coverage(cols),
+            }
+        )
+
+    return {
+        "status": "completed",
+        "model": model,
+        "database": payload.database,
+        "schema": payload.schema_name,
+        "table_count": len(tables_out),
+        "tables": tables_out,
+        "relationships": relationships,
+        "summary_stats": summary_stats,
+    }
+
+
+def _description_coverage(columns: list[dict[str, object]]) -> dict[str, object]:
+    total = len(columns)
+    described = sum(1 for c in columns if c.get("description"))
+    return {
+        "total_columns": total,
+        "described_columns": described,
+        "percent": round(described / total * 100, 1) if total else 0.0,
+    }
 
 
 if __name__ == "__main__":
