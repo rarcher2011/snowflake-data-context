@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ConnectionStatus,
@@ -20,14 +20,17 @@ import {
 } from "./api";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-type AppView = "home" | "metadata";
+type AppView = "home" | "metadata" | "query";
 
 const metadataHash = "#metadata";
+const queryHash = "#query";
 
 export default function App() {
-  const [activeView, setActiveView] = useState<AppView>(() =>
-    window.location.hash === metadataHash ? "metadata" : "home",
-  );
+  const [activeView, setActiveView] = useState<AppView>(() => {
+    if (window.location.hash === metadataHash) return "metadata";
+    if (window.location.hash === queryHash) return "query";
+    return "home";
+  });
   const [connection, setConnection] = useState<ConnectionStatus | null>(null);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [databases, setDatabases] = useState<string[]>([]);
@@ -47,12 +50,17 @@ export default function App() {
   const [analysisResult, setAnalysisResult] = useState<MetadataDescriptionAnalysis | null>(null);
   const [queryResult, setQueryResult] = useState<PlainTextTableQueryResult | null>(null);
   const [queryText, setQueryText] = useState("");
+  const [selectedTable, setSelectedTable] = useState<TableSummary | null>(null);
   const [editedDescriptions, setEditedDescriptions] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function syncViewFromHash() {
-      setActiveView(window.location.hash === metadataHash ? "metadata" : "home");
+      if (window.location.hash === metadataHash) setActiveView("metadata");
+      else if (window.location.hash === queryHash) setActiveView("query");
+      else setActiveView("home");
     }
 
     window.addEventListener("hashchange", syncViewFromHash);
@@ -189,6 +197,7 @@ export default function App() {
         schema: selectedSchema,
       });
       setTables(tableResults);
+      setSelectedTable(null);
       setSelectedMetadata(null);
       setEditedDescriptions({});
       setAnalysisResult(null);
@@ -307,10 +316,11 @@ export default function App() {
       }));
       setSuggestionState("ready");
       setSaveState("idle");
-      setMessage(`LLM suggested ${response.suggestions.length} descriptions with ${response.model}.`);
+      setMessage("");
+      showToast(`${response.suggestions.length} description${response.suggestions.length === 1 ? "" : "s"} suggested`);
     } catch (error) {
       setSuggestionState("error");
-      setMessage(error instanceof Error ? error.message : "Unable to suggest descriptions.");
+      setMessage("There was an issue with the LLM call. Please try again.");
     }
   }
 
@@ -352,19 +362,32 @@ export default function App() {
     setSaveState("idle");
   }
 
+  function showToast(text: string) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(text);
+    toastTimer.current = setTimeout(() => setToast(""), 3500);
+  }
+
   function openView(view: AppView) {
     setActiveView(view);
-    const nextHash = view === "metadata" ? metadataHash : "";
+    const nextHash = view === "metadata" ? metadataHash : view === "query" ? queryHash : "";
     if (window.location.hash !== nextHash) {
       history.pushState(null, "", `${window.location.pathname}${nextHash}`);
     }
   }
 
   const isMetadataView = activeView === "metadata";
+  const isQueryView = activeView === "query";
   const analysisByColumn = buildAnalysisByColumnName(analysisResult);
 
   return (
     <main className="app-shell">
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          <span className="toast-icon">✓</span>
+          {toast}
+        </div>
+      )}
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
@@ -397,6 +420,16 @@ export default function App() {
               Metadata
               <span>{tables.length}</span>
             </a>
+            <a
+              className={`nav-item ${isQueryView ? "is-active" : ""}`}
+              href={queryHash}
+              onClick={(event) => {
+                event.preventDefault();
+                openView("query");
+              }}
+            >
+              Query
+            </a>
           </div>
         </nav>
 
@@ -413,25 +446,13 @@ export default function App() {
         <header className="top-bar">
           <div>
             <p className="breadcrumb">Workspace › Snowflake Context</p>
-            <h1>{isMetadataView ? "Metadata Workspace" : "Agent Workspace"}</h1>
+            <h1>{isMetadataView ? "Metadata Workspace" : isQueryView ? "Query Workspace" : "Agent Workspace"}</h1>
           </div>
-          {isMetadataView && (
-            <div className="top-actions">
-              <button
-                className="primary-action top-action"
-                type="button"
-                onClick={() => void runAnalysis()}
-                disabled={!selectedMetadata || analysisState === "loading"}
-              >
-                {analysisState === "loading" ? "Analyzing" : "Run Analysis"}
-              </button>
-            </div>
-          )}
         </header>
 
         <section
-          className={`content-area ${isMetadataView ? "metadata-view" : ""}`}
-          aria-label={isMetadataView ? "Snowflake metadata workspace" : "Snowflake connection workspace"}
+          className={`content-area ${isMetadataView ? "metadata-view" : isQueryView ? "query-view" : ""}`}
+          aria-label={isMetadataView ? "Snowflake metadata workspace" : isQueryView ? "Snowflake query workspace" : "Snowflake connection workspace"}
         >
           <div className="summary-strip" aria-label="Workspace summary">
             <div>
@@ -560,41 +581,60 @@ export default function App() {
 
               <div className="table-list" role="table" aria-label="Snowflake tables">
                 <div className="table-row table-header" role="row">
+                  <span role="columnheader" />
                   <span role="columnheader">Name</span>
                   <span role="columnheader">Type</span>
                   <span role="columnheader">Descriptions</span>
-                  <span role="columnheader">Metadata</span>
                 </div>
-                {tables.map((table) => (
-                  <div className="table-row" role="row" key={`${table.database}.${table.schema}.${table.name}`}>
-                    <span role="cell">{table.name}</span>
-                    <span role="cell">{table.type}</span>
-                    <span role="cell" className={`quality quality-${table.descriptionStatus}`}>
-                      {table.descriptionStatus}
-                    </span>
-                    <span role="cell">
-                      <button
-                        className="metadata-action"
-                        type="button"
-                        onClick={() => void selectTableMetadata(table)}
-                        disabled={metadataState === "loading"}
-                      >
-                        Metadata
-                      </button>
-                    </span>
-                  </div>
-                ))}
+                {tables.map((table) => {
+                  const isSelected = selectedTable?.name === table.name;
+                  return (
+                    <div
+                      className={`table-row${isSelected ? " is-selected" : ""}`}
+                      role="row"
+                      key={`${table.database}.${table.schema}.${table.name}`}
+                      onClick={() => setSelectedTable(isSelected ? null : table)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <span role="cell" className="table-checkbox-cell">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => setSelectedTable(isSelected ? null : table)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Select ${table.name}`}
+                        />
+                      </span>
+                      <span role="cell">{table.name}</span>
+                      <span role="cell">{table.type}</span>
+                      <span role="cell" className={`quality quality-${table.descriptionStatus}`}>
+                        {table.descriptionStatus}
+                      </span>
+                    </div>
+                  );
+                })}
                 {tables.length === 0 ? (
                   <div className="empty-state">
                     {tableState === "loading" ? "Loading tables" : "No table list run yet"}
                   </div>
                 ) : null}
               </div>
+
+              {tableState === "ready" && (
+                <button
+                  className="metadata-action"
+                  type="button"
+                  onClick={() => selectedTable && void selectTableMetadata(selectedTable)}
+                  disabled={!selectedTable || metadataState === "loading"}
+                  title={selectedTable ? `Load metadata for ${selectedTable.name}` : "Select a table to load its metadata"}
+                >
+                  {metadataState === "loading" ? "Loading metadata…" : selectedTable ? `Load Metadata: ${selectedTable.name}` : "Select a table"}
+                </button>
+              )}
             </div>
 
             {isMetadataView ? (
-              <>
-                <div className="panel metadata-panel">
+              <div className="panel metadata-panel">
                   <div className="panel-heading metadata-heading">
                     <div>
                       <h2>Metadata</h2>
@@ -675,75 +715,80 @@ export default function App() {
                   {metadataState !== "loading" && !selectedMetadata ? (
                     <div className="empty-state">Select metadata from a table</div>
                   ) : null}
+              </div>
+            ) : null}
+
+            {isQueryView ? (
+              <div className="panel query-panel">
+                <div className="panel-heading query-heading">
+                  <div>
+                    <h2>Query</h2>
+                    <p>
+                      {selectedMetadata
+                        ? `${selectedMetadata.database}.${selectedMetadata.schema}.${selectedMetadata.table}`
+                        : "No table selected"}
+                    </p>
+                  </div>
+                  <button
+                    className="metadata-save-action"
+                    type="button"
+                    onClick={() => void runQuery()}
+                    disabled={!selectedMetadata || queryState === "loading"}
+                  >
+                    {queryState === "loading" ? "Running" : "Run Query"}
+                  </button>
                 </div>
 
-                <div className="panel query-panel">
-                  <div className="panel-heading query-heading">
-                    <div>
-                      <h2>Query</h2>
-                      <p>
-                        {selectedMetadata
-                          ? `${selectedMetadata.database}.${selectedMetadata.schema}.${selectedMetadata.table}`
-                          : "Selected table"}
-                      </p>
-                    </div>
-                    <button
-                      className="metadata-save-action"
-                      type="button"
-                      onClick={() => void runQuery()}
-                      disabled={!selectedMetadata || queryState === "loading"}
-                    >
-                      {queryState === "loading" ? "Running" : "Run Query"}
-                    </button>
-                  </div>
+                <div className="query-workspace">
+                  <label className="query-label">
+                    <span>Question</span>
+                    <textarea
+                      value={queryText}
+                      onChange={(event) => setQueryText(event.target.value)}
+                      placeholder="Ask a question about the selected table"
+                    />
+                  </label>
 
-                  <div className="query-workspace">
-                    <label className="query-label">
-                      <span>Question</span>
-                      <textarea
-                        value={queryText}
-                        onChange={(event) => setQueryText(event.target.value)}
-                        placeholder="Ask a question about the selected table"
-                      />
-                    </label>
-
-                    {queryResult ? (
-                      <div className="query-result">
-                        <div className="query-sql">
-                          <p>Generated SQL</p>
-                          <pre>{queryResult.sql}</pre>
+                  {queryResult ? (
+                    <div className="query-result">
+                      <div className="query-sql">
+                        <p>Generated SQL</p>
+                        <pre>{queryResult.sql}</pre>
+                      </div>
+                      <div className="query-explanation">
+                        <p>{queryResult.explanation || "Query executed."}</p>
+                        <span>{queryResult.rowCount} rows returned</span>
+                      </div>
+                      <div className="query-table" role="table" aria-label="Query results">
+                        <div className="query-row query-header" role="row">
+                          {queryResult.columns.map((column) => (
+                            <span role="columnheader" key={column}>
+                              {column}
+                            </span>
+                          ))}
                         </div>
-                        <div className="query-explanation">
-                          <p>{queryResult.explanation || "Query executed."}</p>
-                          <span>{queryResult.rowCount} rows returned</span>
-                        </div>
-                        <div className="query-table" role="table" aria-label="Query results">
-                          <div className="query-row query-header" role="row">
+                        {queryResult.rows.map((row, rowIndex) => (
+                          <div className="query-row" role="row" key={`query-row-${rowIndex}`}>
                             {queryResult.columns.map((column) => (
-                              <span role="columnheader" key={column}>
-                                {column}
+                              <span role="cell" key={`${rowIndex}-${column}`}>
+                                {formatQueryValue(row[column])}
                               </span>
                             ))}
                           </div>
-                          {queryResult.rows.map((row, rowIndex) => (
-                            <div className="query-row" role="row" key={`query-row-${rowIndex}`}>
-                              {queryResult.columns.map((column) => (
-                                <span role="cell" key={`${rowIndex}-${column}`}>
-                                  {formatQueryValue(row[column])}
-                                </span>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
+                        ))}
                       </div>
-                    ) : (
-                      <div className="empty-state">
-                        {queryState === "loading" ? "Generating SQL and querying Snowflake" : "No query run yet"}
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      {queryState === "loading"
+                        ? "Generating SQL and querying Snowflake"
+                        : selectedMetadata
+                          ? "No query run yet"
+                          : "Load metadata from the Metadata tab first"}
+                    </div>
+                  )}
                 </div>
-              </>
+              </div>
             ) : null}
           </div>
         </section>
