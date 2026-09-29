@@ -117,6 +117,49 @@ export type TableListRequest = {
   schema: string;
 };
 
+export type DiscoveryTableResult = {
+  name: string;
+  database: string;
+  schema: string;
+  estimated_row_count: number;
+  column_count: number;
+  description: string;
+  purpose: "fact" | "dimension" | "staging" | "reference" | "log" | "unknown";
+  key_columns: string[];
+  existing_description_coverage: {
+    total_columns: number;
+    described_columns: number;
+    percent: number;
+  };
+};
+
+export type DiscoveryRelationship = {
+  from_table: string;
+  from_column: string;
+  to_table: string;
+  relationship: string;
+};
+
+export type DiscoverySampleStats = {
+  table: string;
+  estimated_row_count: number;
+  sampled: boolean;
+  sample_percent: number;
+  sampled_row_count: number | null;
+  stats: Record<string, unknown>;
+};
+
+export type DiscoveryReportResult = {
+  status: "completed" | "empty";
+  model: string;
+  database: string;
+  schema: string;
+  table_count: number;
+  tables: DiscoveryTableResult[];
+  relationships: DiscoveryRelationship[];
+  summary_stats: DiscoverySampleStats[];
+};
+
 export type TableMetadataRequest = TableListRequest & {
   table: string;
 };
@@ -193,6 +236,18 @@ export async function runPlainTextTableQuery(
   request: PlainTextTableQueryRequest,
 ): Promise<PlainTextTableQueryResult> {
   return postRequiredJson<PlainTextTableQueryResult>("/api/snowflake/query", request);
+}
+
+export async function runDiscoveryReport(
+  warehouse: string,
+  database: string,
+  schema: string,
+): Promise<DiscoveryReportResult> {
+  return postRequiredJson<DiscoveryReportResult>("/api/snowflake/discovery-report", {
+    warehouse,
+    database,
+    schema,
+  });
 }
 
 async function getRequiredJson<T>(path: string): Promise<T> {

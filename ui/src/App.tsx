@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ConnectionStatus,
   DescriptionAnalysisColumn,
+  DiscoveryReportResult,
   MetadataDescriptionAnalysis,
   PlainTextTableQueryResult,
   TableMetadata,
@@ -13,6 +14,7 @@ import {
   listSchemas,
   listTables,
   listWarehouses,
+  runDiscoveryReport,
   runPlainTextTableQuery,
   runMetadataDescriptionAnalysis,
   saveColumnDescriptions,
@@ -20,15 +22,17 @@ import {
 } from "./api";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-type AppView = "home" | "metadata" | "query";
+type AppView = "home" | "metadata" | "query" | "discovery";
 
 const metadataHash = "#metadata";
 const queryHash = "#query";
+const discoveryHash = "#discovery";
 
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (window.location.hash === metadataHash) return "metadata";
     if (window.location.hash === queryHash) return "query";
+    if (window.location.hash === discoveryHash) return "discovery";
     return "home";
   });
   const [connection, setConnection] = useState<ConnectionStatus | null>(null);
@@ -50,6 +54,8 @@ export default function App() {
   const [analysisResult, setAnalysisResult] = useState<MetadataDescriptionAnalysis | null>(null);
   const [queryResult, setQueryResult] = useState<PlainTextTableQueryResult | null>(null);
   const [queryText, setQueryText] = useState("");
+  const [discoveryState, setDiscoveryState] = useState<LoadState>("idle");
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryReportResult | null>(null);
   const [selectedTable, setSelectedTable] = useState<TableSummary | null>(null);
   const [editedDescriptions, setEditedDescriptions] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
@@ -60,6 +66,7 @@ export default function App() {
     function syncViewFromHash() {
       if (window.location.hash === metadataHash) setActiveView("metadata");
       else if (window.location.hash === queryHash) setActiveView("query");
+      else if (window.location.hash === discoveryHash) setActiveView("discovery");
       else setActiveView("home");
     }
 
@@ -362,6 +369,29 @@ export default function App() {
     setSaveState("idle");
   }
 
+  async function runDiscovery() {
+    if (!selectedWarehouse || !selectedDatabase || !selectedSchema) {
+      setMessage(
+        missingSelectionMessage({
+          warehouse: selectedWarehouse,
+          database: selectedDatabase,
+          schema: selectedSchema,
+        }),
+      );
+      return;
+    }
+    setDiscoveryState("loading");
+    setMessage("");
+    try {
+      const result = await runDiscoveryReport(selectedWarehouse, selectedDatabase, selectedSchema);
+      setDiscoveryResult(result);
+      setDiscoveryState("ready");
+    } catch (error) {
+      setDiscoveryState("error");
+      setMessage(error instanceof Error ? error.message : "Unable to run discovery report.");
+    }
+  }
+
   function showToast(text: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(text);
@@ -370,7 +400,11 @@ export default function App() {
 
   function openView(view: AppView) {
     setActiveView(view);
-    const nextHash = view === "metadata" ? metadataHash : view === "query" ? queryHash : "";
+    const nextHash =
+      view === "metadata" ? metadataHash
+      : view === "query" ? queryHash
+      : view === "discovery" ? discoveryHash
+      : "";
     if (window.location.hash !== nextHash) {
       history.pushState(null, "", `${window.location.pathname}${nextHash}`);
     }
@@ -378,6 +412,7 @@ export default function App() {
 
   const isMetadataView = activeView === "metadata";
   const isQueryView = activeView === "query";
+  const isDiscoveryView = activeView === "discovery";
   const analysisByColumn = buildAnalysisByColumnName(analysisResult);
 
   return (
@@ -430,6 +465,16 @@ export default function App() {
             >
               Query
             </a>
+            <a
+              className={`nav-item ${isDiscoveryView ? "is-active" : ""}`}
+              href={discoveryHash}
+              onClick={(event) => {
+                event.preventDefault();
+                openView("discovery");
+              }}
+            >
+              Discovery
+            </a>
           </div>
         </nav>
 
@@ -446,13 +491,21 @@ export default function App() {
         <header className="top-bar">
           <div>
             <p className="breadcrumb">Workspace › Snowflake Context</p>
-            <h1>{isMetadataView ? "Metadata Workspace" : isQueryView ? "Query Workspace" : "Agent Workspace"}</h1>
+            <h1>
+              {isMetadataView
+                ? "Metadata Workspace"
+                : isQueryView
+                  ? "Query Workspace"
+                  : isDiscoveryView
+                    ? "Discovery"
+                    : "Agent Workspace"}
+            </h1>
           </div>
         </header>
 
         <section
-          className={`content-area ${isMetadataView ? "metadata-view" : isQueryView ? "query-view" : ""}`}
-          aria-label={isMetadataView ? "Snowflake metadata workspace" : isQueryView ? "Snowflake query workspace" : "Snowflake connection workspace"}
+          className={`content-area ${isMetadataView ? "metadata-view" : isQueryView ? "query-view" : isDiscoveryView ? "discovery-view" : ""}`}
+          aria-label={isMetadataView ? "Snowflake metadata workspace" : isQueryView ? "Snowflake query workspace" : isDiscoveryView ? "Schema discovery workspace" : "Snowflake connection workspace"}
         >
           <div className="summary-strip" aria-label="Workspace summary">
             <div>
@@ -715,6 +768,130 @@ export default function App() {
                   {metadataState !== "loading" && !selectedMetadata ? (
                     <div className="empty-state">Select metadata from a table</div>
                   ) : null}
+              </div>
+            ) : null}
+
+            {isDiscoveryView ? (
+              <div className="panel discovery-panel">
+                <div className="panel-heading discovery-heading">
+                  <div>
+                    <h2>Schema Discovery</h2>
+                    <p>
+                      {discoveryResult
+                        ? `${discoveryResult.database}.${discoveryResult.schema} · ${discoveryResult.table_count} tables`
+                        : selectedDatabase && selectedSchema
+                          ? `${selectedDatabase}.${selectedSchema}`
+                          : "Select a schema to run"}
+                    </p>
+                  </div>
+                  <button
+                    className="metadata-save-action"
+                    type="button"
+                    onClick={() => void runDiscovery()}
+                    disabled={!selectedWarehouse || !selectedDatabase || !selectedSchema || discoveryState === "loading"}
+                  >
+                    {discoveryState === "loading" ? "Running…" : "Run Discovery"}
+                  </button>
+                </div>
+
+                {message && isDiscoveryView ? <p className="inline-error">{message}</p> : null}
+
+                {discoveryState === "loading" ? (
+                  <div className="empty-state">Fetching schema metadata and generating descriptions…</div>
+                ) : discoveryResult ? (
+                  <div className="discovery-body">
+                    <div className="discovery-tables">
+                      {discoveryResult.tables.map((table) => (
+                        <div className="discovery-card" key={table.name}>
+                          <div className="discovery-card-header">
+                            <div className="discovery-card-title">
+                              <span className="discovery-table-name">{table.name}</span>
+                              <span className={`discovery-purpose purpose-${table.purpose}`}>
+                                {table.purpose}
+                              </span>
+                            </div>
+                            <div className="discovery-card-meta">
+                              <span>{table.estimated_row_count.toLocaleString()} rows</span>
+                              <span>{table.column_count} columns</span>
+                              <span className="discovery-coverage-text">
+                                {table.existing_description_coverage.percent}% described
+                              </span>
+                            </div>
+                          </div>
+                          {table.description ? (
+                            <p className="discovery-description">{table.description}</p>
+                          ) : null}
+                          {table.key_columns.length > 0 ? (
+                            <div className="discovery-key-columns">
+                              {table.key_columns.map((col) => (
+                                <span className="discovery-col-chip" key={col}>{col}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="discovery-coverage-bar">
+                            <div
+                              className="discovery-coverage-fill"
+                              style={{ width: `${table.existing_description_coverage.percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {discoveryResult.relationships.length > 0 ? (
+                      <div className="discovery-section">
+                        <h3 className="discovery-section-title">Detected Relationships</h3>
+                        <div className="discovery-relationships">
+                          {discoveryResult.relationships.map((rel, i) => (
+                            <div className="discovery-rel-row" key={i}>
+                              <span className="discovery-rel-from">{rel.from_table}</span>
+                              <span className="discovery-rel-col">.{rel.from_column}</span>
+                              <span className="discovery-rel-arrow">→</span>
+                              <span className="discovery-rel-to">{rel.to_table}</span>
+                              <span className="discovery-rel-type">{rel.relationship}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {discoveryResult.summary_stats.length > 0 ? (
+                      <div className="discovery-section">
+                        <h3 className="discovery-section-title">Sampled Statistics</h3>
+                        <div className="discovery-stats-list">
+                          {discoveryResult.summary_stats.map((s) => (
+                            <div className="discovery-stats-card" key={s.table}>
+                              <div className="discovery-stats-header">
+                                <span className="discovery-stats-name">{s.table}</span>
+                                <span className="discovery-stats-meta">
+                                  {s.sampled_row_count != null
+                                    ? `~${Math.round(s.sampled_row_count / (s.sample_percent / 100)).toLocaleString()} est. rows`
+                                    : `${s.estimated_row_count.toLocaleString()} est. rows`}
+                                </span>
+                              </div>
+                              {Object.keys(s.stats).length > 0 ? (
+                                <dl className="discovery-stats-dl">
+                                  {Object.entries(s.stats).map(([key, val]) => (
+                                    <div key={key}>
+                                      <dt>{key.replace(/_/g, " ")}</dt>
+                                      <dd>{val != null ? String(val) : "—"}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              ) : (
+                                <p className="discovery-stats-empty">No numeric or date columns sampled.</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    Select a warehouse, database, and schema, then click Run Discovery.
+                  </div>
+                )}
               </div>
             ) : null}
 
