@@ -132,6 +132,7 @@ The UI backend exposes these endpoints:
 - `POST /api/snowflake/description-suggestions`
 - `POST /api/snowflake/column-descriptions`
 - `POST /api/snowflake/query`
+- `POST /api/snowflake/discovery-report`
 
 The Home page shows connection setup, scope selection, and table discovery. The left-side Metadata page shows the selected table schema. Click a table row's `Metadata` button to load its columns. `Run Analysis` scores the current metadata and adds quality, score, and recommendation columns directly to the schema table. `Suggest` sends the current table metadata to the configured OpenAI SDK client and fills the editable description cells with suggested descriptions. `Save` submits the edited descriptions to the scaffolded save endpoint; it validates and accepts the payload but does not write to Snowflake yet. The Query section accepts a plain-text question, sends the question and selected table metadata to the configured LLM, validates the generated SQL as read-only, runs it in Snowflake, and returns a preview of the result rows.
 
@@ -466,6 +467,8 @@ The save route is intentionally scaffolded right now. It accepts the edited desc
 The LLM suggestion route is `POST /api/snowflake/description-suggestions`. It accepts the selected table metadata, calls the OpenAI Responses API through the configured SDK client, expects JSON suggestions, and returns them to the UI for review. The default unit tests use fake clients; live OpenAI and Snowflake calls should stay out of default tests.
 
 The plain-text query route is `POST /api/snowflake/query`. It accepts the selected warehouse, table metadata, and a natural-language question. The backend asks the configured LLM for strict JSON containing SQL and an explanation, validates that the SQL is a single read-only `SELECT` or `WITH` statement, adds a preview limit when needed, runs the SQL in Snowflake, and returns the generated SQL plus result rows.
+
+The discovery report route is `POST /api/snowflake/discovery-report`. It accepts a warehouse, database, and schema name. The backend fetches all column metadata in a single `INFORMATION_SCHEMA.COLUMNS` query, reads estimated row counts from `INFORMATION_SCHEMA.TABLES` without scanning, samples the largest tables using `TABLESAMPLE BERNOULLI` for date ranges and numeric statistics, detects likely foreign-key relationships from column name patterns (`_ID`, `_KEY`, `_FK`, `_REF`), and sends a compact schema summary to the configured LLM. The LLM returns a purpose classification (fact, dimension, staging, reference, log, or unknown), a plain-text description, and key columns for each table. The Discovery tab in the UI calls this route and displays table cards, detected relationships, and sampled statistics. Override the model with `OPENAI_DISCOVERY_MODEL` or `OPENAI_MODEL`; it defaults to `gpt-4.1-mini`.
 
 ## Snowflake Description Updates
 
